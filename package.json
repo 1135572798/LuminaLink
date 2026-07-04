@@ -9,6 +9,8 @@
     "dev": "pnpm build:main && concurrently -k \"vite --host 127.0.0.1\" \"wait-on tcp:5173 && electron .\"",
     "build": "vue-tsc --noEmit && vite build && pnpm build:main",
     "build:main": "tsc -p tsconfig.node.json",
+    "pack": "pnpm build && electron-builder --dir",
+    "dist:win": "pnpm build && node scripts/package-win.mjs",
     "preview": "vite preview --host 127.0.0.1",
     "luminalink": "tsx src/cli/index.ts",
     "scan": "tsx src/cli/index.ts scan",
@@ -22,8 +24,16 @@
     "plugins",
     "translation"
   ],
-  "author": "",
+  "author": "1135572798",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/1135572798/LuminaLink.git"
+  },
+  "bugs": {
+    "url": "https://github.com/1135572798/LuminaLink/issues"
+  },
+  "homepage": "https://github.com/1135572798/LuminaLink#readme",
   "dependencies": {
     "@vitejs/plugin-vue": "^5.2.4",
     "fast-glob": "^3.3.3",
@@ -39,10 +49,61 @@
     "@types/sql.js": "^1.4.11",
     "concurrently": "^9.1.0",
     "electron": "^33.2.1",
+    "electron-builder": "^26.15.3",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
     "vite": "^6.0.3",
     "vue-tsc": "^2.1.10",
     "wait-on": "^8.0.1"
+  },
+  "build": {
+    "appId": "dev.luminalink.desktop",
+    "productName": "LuminaLink",
+    "copyright": "Copyright © 2026 LuminaLink contributors",
+    "directories": {
+      "output": "release/${version}"
+    },
+    "icon": "assets/icon.ico",
+    "files": [
+      "dist/**/*",
+      "assets/icon.ico",
+      "package.json",
+      "LICENSE"
+    ],
+    "asar": true,
+    "asarUnpack": [
+      "node_modules/sql.js/dist/sql-wasm.wasm"
+    ],
+    "win": {
+      "icon": "assets/icon.ico",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "${productName}-${version}-${arch}-${target}.${ext}"
+    },
+    "nsis": {
+      "artifactName": "LuminaLink-Setup-${version}-${arch}.${ext}",
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "LuminaLink",
+      "deleteAppDataOnUninstall": false
+    },
+    "portable": {
+      "artifactName": "LuminaLink-Portable-${version}-${arch}.${ext}"
+    }
   }
 }
