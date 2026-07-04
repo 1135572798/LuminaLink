@@ -220,6 +220,96 @@ export async function translatePending(limit = 10): Promise<OperationResult> {
   };
 }
 
+export async function exportAgentTranslationTask(outputFile: string, limit = 10): Promise<OperationResult> {
+  const pending = (await listPendingTranslations())
+    .filter((asset) => asset.riskLevel === 'none')
+    .slice(0, limit);
+  const items = [];
+  for (const asset of pending) {
+    const sourceText = await fs.readFile(asset.sourcePath, 'utf8');
+    items.push({
+      assetId: asset.id,
+      sourceHash: asset.contentHash,
+      name: asset.displayName,
+      type: asset.type,
+      sourcePath: asset.sourcePath,
+      sourceText: sourceText.slice(0, 24000),
+      translatedText: ''
+    });
+  }
+  const payload = {
+    app: 'LuminaLink',
+    kind: 'agent_translation_task',
+    version: 1,
+    createdAt: new Date().toISOString(),
+    targetLang: 'zh-CN',
+    instructions: [
+      'Translate each items[].sourceText into concise Simplified Chinese.',
+      'Write the result into items[].translatedText.',
+      'Keep commands, paths, filenames, code blocks, config keys, function names, product names, and secrets unchanged.',
+      'Do not invent functionality or summarize away important constraints.'
+    ],
+    items
+  };
+  await ensureDir(path.dirname(path.resolve(outputFile)));
+  await fs.writeFile(outputFile, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
+  return {
+    ok: true,
+    message: `已导出 ${items.length} 个智能体翻译任务`,
+    data: { outputFile: path.resolve(outputFile), itemCount: items.length }
+  };
+}
+
+export async function importAgentTranslationResult(inputFile: string): Promise<OperationResult> {
+  const payload = JSON.parse(await fs.readFile(inputFile, 'utf8')) as {
+    items?: Array<{
+      assetId?: string;
+      sourceHash?: string;
+      translatedText?: string;
+    }>;
+  };
+  const items = Array.isArray(payload.items) ? payload.items : [];
+  const indexStore = await openIndexStore();
+  const translationStore = await openTranslationStore();
+  let imported = 0;
+  let skipped = 0;
+
+  for (const item of items) {
+    if (!item.assetId || !item.translatedText?.trim()) {
+      skipped += 1;
+      continue;
+    }
+    const asset = getAsset(indexStore.db, item.assetId);
+    if (!asset || (item.sourceHash && item.sourceHash !== asset.contentHash)) {
+      skipped += 1;
+      continue;
+    }
+    const sourceText = await fs.readFile(asset.sourcePath, 'utf8');
+    const record = upsertTranslation(translationStore.db, {
+      sourceHash: asset.contentHash,
+      sourceLang: 'auto',
+      targetLang: 'zh-CN',
+      scope: 'full',
+      sourceText,
+      translatedText: item.translatedText.trim(),
+      provider: 'agent-cli'
+    });
+    updateAssetTranslation(indexStore.db, asset.id, record.translatedText.slice(0, 1200), 'translated');
+    imported += 1;
+  }
+
+  await indexStore.save();
+  await translationStore.save();
+  indexStore.close();
+  translationStore.close();
+
+  return {
+    ok: true,
+    message: `已导入 ${imported} 条智能体翻译结果，跳过 ${skipped} 条`,
+    data: { inputFile: path.resolve(inputFile), imported, skipped }
+  };
+}
+
 export async function exportMigration(outputFile: string): Promise<OperationResult> {
   const config = await loadConfig();
   const translationStore = await openTranslationStore();
@@ -418,10 +508,33 @@ configuration only affects translation.
    exist on the user's computer:
 
    \`\`\`text
-   %USERPROFILE%/.codex/skills
-   %USERPROFILE%/.codex/plugins/cache
-   %USERPROFILE%/.agents/skills
+    %USERPROFILE%/.codex/skills
+    %USERPROFILE%/.codex/plugins/cache
+    %USERPROFILE%/.codex/agents
+    %USERPROFILE%/.agents/skills
+    \`\`\`
+
+## Optional Agent Translation Workflow
+
+If the user does not want to configure a translation Provider, an agent can
+translate through the LuminaLink source CLI:
+
+1. Export a translation task:
+
+   \`\`\`powershell
+   pnpm luminalink translate export-task "$env:TEMP\\luminalink-translation-task.json" --limit 10
    \`\`\`
+
+2. Fill every \`items[].translatedText\` in the JSON with Simplified Chinese.
+
+3. Import the finished result:
+
+   \`\`\`powershell
+   pnpm luminalink translate import-result "$env:TEMP\\luminalink-translation-task.json"
+   \`\`\`
+
+This workflow uses the user's active agent instead of storing a raw API key in
+LuminaLink. It still writes translations into the normal local cache.
 
 ## UI Hints
 
@@ -454,6 +567,7 @@ function Get-DefaultConfig {
     scanRoots = @(
       [ordered]@{ id = 'codex-skills'; label = 'Codex Skills'; pathExpression = '%USERPROFILE%/.codex/skills'; kind = 'codex_skills'; enabled = $true },
       [ordered]@{ id = 'codex-plugins'; label = 'Codex Plugins'; pathExpression = '%USERPROFILE%/.codex/plugins/cache'; kind = 'codex_plugins'; enabled = $true },
+      [ordered]@{ id = 'codex-agents'; label = 'Codex Agents'; pathExpression = '%USERPROFILE%/.codex/agents'; kind = 'codex_agents'; enabled = $true },
       [ordered]@{ id = 'agent-skills'; label = 'User Agent Skills'; pathExpression = '%USERPROFILE%/.agents/skills'; kind = 'agents_skills'; enabled = $true }
     )
     translator = [ordered]@{ provider = 'noop'; targetLang = 'zh-CN' }

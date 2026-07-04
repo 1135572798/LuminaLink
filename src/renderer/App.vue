@@ -409,7 +409,9 @@ const fallbackAgentPrompt = `请帮我配置 LuminaLink。
 2. 不要输出或保存 raw API key/token/cookie/私钥。
 3. 先检查扫描目录和配置文件。
 4. 扫描资产不需要 Provider；Provider 只影响翻译功能。
-5. 如果需要翻译 Provider，优先使用 Windows 用户/系统环境变量 OPENAI_API_KEY。`;
+5. 默认扫描目录应包含 %USERPROFILE%/.codex/agents。
+6. 如果用户不想配置 Provider，可以使用 LuminaLink CLI 导出/导入智能体翻译任务包。
+7. 如果需要翻译 Provider，优先使用 Windows 用户/系统环境变量 OPENAI_API_KEY。`;
 
 const filters = [
   { key: 'all', label: '全部' },
@@ -596,7 +598,7 @@ async function saveTranslator(): Promise<void> {
 async function loadAgentGuide(): Promise<void> {
   try {
     if (!window.lumina?.agentGuide) {
-      throw new Error('本机桥接未连接，已显示通用提示词。请安装 v0.1.2 或更新版本后重试。');
+      throw new Error('本机桥接未连接，已显示通用提示词。请安装 v0.1.3 或更新版本后重试。');
     }
     const result = await window.lumina?.agentGuide();
     agentGuide.value = result?.data;

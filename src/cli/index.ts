@@ -4,7 +4,9 @@ import {
   addRoot,
   doctor,
   exportMigration,
+  exportAgentTranslationTask,
   getStatus,
+  importAgentTranslationResult,
   importMigration,
   listPendingTranslations,
   runScan,
@@ -115,6 +117,20 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (command === 'translate' && args[1] === 'export-task') {
+    const output = args[2] ?? option('--output');
+    if (!output) throw new Error('缺少翻译任务导出文件路径');
+    print(await exportAgentTranslationTask(output, Number(option('--limit', '10'))));
+    return;
+  }
+
+  if (command === 'translate' && args[1] === 'import-result') {
+    const input = args[2] ?? option('--input');
+    if (!input) throw new Error('缺少翻译结果文件路径');
+    print(await importAgentTranslationResult(input));
+    return;
+  }
+
   if (command === 'files' && args[1] === 'add') {
     const target = args[2];
     if (!target) throw new Error('缺少文件路径');
@@ -161,6 +177,8 @@ Usage:
   luminalink translate list
   luminalink translate run --pending
   luminalink translate run --asset "<asset-id>"
+  luminalink translate export-task "<output-json>" --limit 10
+  luminalink translate import-result "<output-json>"
   luminalink files add "<path>" --category "其他文件"
   luminalink files translate "<asset-id>"
   luminalink migrate export "<output-file>"

@@ -122,13 +122,23 @@ async function runUiSmokeInteractions(screenshotDir: string): Promise<void> {
   await mainWindow.webContents.executeJavaScript(`
     new Promise((resolve) => {
       const button = Array.from(document.querySelectorAll('button')).find((item) =>
+        item.textContent && item.textContent.trim() === 'Agent'
+      );
+      if (button) button.click();
+      window.setTimeout(resolve, 700);
+    })
+  `);
+  await captureSmokeScreenshot(screenshotDir, '02-agent-filter.png');
+  await mainWindow.webContents.executeJavaScript(`
+    new Promise((resolve) => {
+      const button = Array.from(document.querySelectorAll('button')).find((item) =>
         item.textContent && item.textContent.includes('Codex 协助')
       );
       if (button) button.click();
       window.setTimeout(resolve, 900);
     })
   `);
-  await captureSmokeScreenshot(screenshotDir, '02-codex-assist.png');
+  await captureSmokeScreenshot(screenshotDir, '03-codex-assist.png');
 }
 
 app.whenReady().then(async () => {
@@ -168,7 +178,7 @@ function registerIpc(): void {
     const result = await dialog.showOpenDialog(mainWindow!, {
       properties: ['openFile'],
       filters: [
-        { name: 'Text Documents', extensions: ['md', 'txt', 'json', 'yaml', 'yml'] },
+        { name: 'Text Documents', extensions: ['md', 'txt', 'json', 'toml', 'yaml', 'yml'] },
         { name: 'All Files', extensions: ['*'] }
       ]
     });

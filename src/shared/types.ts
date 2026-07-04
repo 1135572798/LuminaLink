@@ -14,6 +14,7 @@ export type RiskLevel = 'none' | 'low' | 'medium' | 'high';
 export type ScanRootKind =
   | 'codex_skills'
   | 'codex_plugins'
+  | 'codex_agents'
   | 'agents_skills'
   | 'project_root'
   | 'docs_root'

@@ -23,6 +23,9 @@ export async function parseAssetFile(filePath: string, rootKind: ScanRootKind): 
   if (fileName.endsWith('.json')) {
     return parseJsonAsset(fileName, raw, rootKind);
   }
+  if (fileName.endsWith('.toml')) {
+    return parseTomlAsset(fileName, raw, rootKind);
+  }
   const parsed = matter(raw);
   const body = parsed.content.trim();
   const firstHeading = body.match(/^#\s+(.+)$/m)?.[1]?.trim();
@@ -88,6 +91,33 @@ function parseJsonAsset(fileName: string, raw: string, rootKind: ScanRootKind): 
   }
 }
 
+function parseTomlAsset(fileName: string, raw: string, rootKind: ScanRootKind): ParsedFile {
+  const name = readTomlString(raw, 'name') ?? stripExtension(fileName);
+  const description = readTomlString(raw, 'description') ?? raw.slice(0, 1200);
+  const body = readTomlString(raw, 'developer_instructions') ?? raw;
+  return {
+    name,
+    displayName: name,
+    description: description.slice(0, 1200),
+    body,
+    tags: [],
+    type: inferAssetType(fileName, rootKind, raw),
+    riskLevel: detectRisk(raw),
+    detectedLang: detectLanguage(`${name}\n${description}\n${body}`)
+  };
+}
+
+function readTomlString(raw: string, key: string): string | undefined {
+  const escaped = key.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const match = raw.match(new RegExp(`^${escaped}\\s*=\\s*("(?:\\\\.|[^"\\\\])*"|'(?:\\\\.|[^'\\\\])*')`, 'm'));
+  if (!match?.[1]) return undefined;
+  try {
+    return JSON.parse(match[1].replace(/^'/, '"').replace(/'$/, '"')) as string;
+  } catch {
+    return match[1].slice(1, -1);
+  }
+}
+
 function stripExtension(fileName: string): string {
   const ext = path.extname(fileName);
   return ext ? fileName.slice(0, -ext.length) : fileName;
@@ -96,6 +126,8 @@ function stripExtension(fileName: string): string {
 function inferAssetType(fileName: string, rootKind: ScanRootKind, raw: string): AssetType {
   if (fileName === 'SKILL.md') return 'skill';
   if (agentNames.has(fileName)) return 'agent_file';
+  if (rootKind === 'codex_agents') return 'agent_file';
+  if (fileName.toLowerCase().endsWith('.toml') && /\bdeveloper_instructions\s*=/.test(raw)) return 'agent_file';
   if (rootKind === 'codex_plugins') return 'plugin';
   if (rootKind === 'docs_root') return 'project_doc';
   if (fileName.toLowerCase().endsWith('.md')) return 'markdown_doc';

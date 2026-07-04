@@ -22,7 +22,7 @@ const defaultIgnores = [
   '**/target/**'
 ];
 
-const supportedGenericExt = new Set(['.md', '.txt', '.json', '.yaml', '.yml']);
+const supportedGenericExt = new Set(['.md', '.txt', '.json', '.toml', '.yaml', '.yml']);
 
 export async function scanAll(): Promise<ScanSummary> {
   const config = await loadConfig();
@@ -165,13 +165,27 @@ function patternsForRoot(root: ScanRoot): string[] {
   if (root.kind === 'codex_plugins') {
     return ['**/SKILL.md', '**/README.md', '**/plugin.json', '**/package.json'];
   }
+  if (root.kind === 'codex_agents') {
+    return ['**/*.toml'];
+  }
   if (root.kind === 'project_root') {
     return ['**/AGENTS.md', '**/AGENT.md', '**/Agent.md', '**/CLAUDE.md', '**/.cursorrules'];
   }
   if (root.kind === 'docs_root') {
     return ['**/*.md', '**/*.txt'];
   }
-  return ['**/SKILL.md', '**/AGENTS.md', '**/Agent.md', '**/README.md', '**/*.md', '**/*.txt'];
+  return [
+    '**/SKILL.md',
+    '**/AGENTS.md',
+    '**/Agent.md',
+    '**/README.md',
+    '**/*.md',
+    '**/*.txt',
+    '**/*.toml',
+    '**/*.json',
+    '**/*.yaml',
+    '**/*.yml'
+  ];
 }
 
 async function parseAndUpsertFile(

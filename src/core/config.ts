@@ -25,6 +25,13 @@ export const defaultConfig: AppConfig = {
       enabled: true
     },
     {
+      id: 'codex-agents',
+      label: 'Codex Agents',
+      pathExpression: '%USERPROFILE%/.codex/agents',
+      kind: 'codex_agents',
+      enabled: true
+    },
+    {
       id: 'agent-skills',
       label: 'User Agent Skills',
       pathExpression: '%USERPROFILE%/.agents/skills',
@@ -45,17 +52,22 @@ export async function loadConfig(): Promise<AppConfig> {
     await saveConfig(defaultConfig);
     return structuredClone(defaultConfig);
   }
-  const raw = await fs.readFile(paths.configPath, 'utf8');
+  const raw = (await fs.readFile(paths.configPath, 'utf8')).replace(/^\uFEFF/, '');
   const parsed = JSON.parse(raw) as AppConfig;
-  return {
+  const scanRoots = mergeDefaultScanRoots(parsed.scanRoots);
+  const merged = {
     ...defaultConfig,
     ...parsed,
     translator: {
       ...defaultConfig.translator,
       ...parsed.translator
     },
-    scanRoots: parsed.scanRoots?.length ? parsed.scanRoots : defaultConfig.scanRoots
+    scanRoots
   };
+  if (scanRoots.length !== (parsed.scanRoots?.length ?? 0)) {
+    await saveConfig(merged);
+  }
+  return merged;
 }
 
 export async function saveConfig(config: AppConfig): Promise<void> {
@@ -81,4 +93,13 @@ export async function addScanRoot(root: Omit<ScanRoot, 'expandedPath'>): Promise
   }
   await saveConfig(config);
   return config;
+}
+
+function mergeDefaultScanRoots(
+  scanRoots: AppConfig['scanRoots'] | undefined
+): AppConfig['scanRoots'] {
+  if (!scanRoots?.length) return defaultConfig.scanRoots;
+  const existingIds = new Set(scanRoots.map((root) => root.id));
+  const missingDefaults = defaultConfig.scanRoots.filter((root) => !existingIds.has(root.id));
+  return [...scanRoots, ...missingDefaults];
 }
