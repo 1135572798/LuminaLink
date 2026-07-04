@@ -7,6 +7,7 @@ declare global {
       asset: (id: string) => Promise<any>;
       scan: () => Promise<any>;
       pendingTranslations: () => Promise<any>;
+      agentGuide: () => Promise<any>;
       translateAsset: (id: string) => Promise<any>;
       translatePending: (limit?: number) => Promise<any>;
       doctor: () => Promise<any>;

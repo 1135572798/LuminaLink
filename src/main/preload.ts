@@ -8,6 +8,7 @@ const api = {
   asset: (id: string) => ipcRenderer.invoke('lumina:asset', id),
   scan: () => ipcRenderer.invoke('lumina:scan'),
   pendingTranslations: () => ipcRenderer.invoke('lumina:pending-translations'),
+  agentGuide: () => ipcRenderer.invoke('lumina:agent-guide'),
   translateAsset: (id: string) => ipcRenderer.invoke('lumina:translate-asset', id),
   translatePending: (limit = 10) => ipcRenderer.invoke('lumina:translate-pending', limit),
   doctor: () => ipcRenderer.invoke('lumina:doctor'),

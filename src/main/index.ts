@@ -5,6 +5,7 @@ import {
   addFile,
   addRoot,
   doctor,
+  getAgentGuide,
   getDashboard,
   getStatus,
   listPendingTranslations,
@@ -69,6 +70,7 @@ function registerIpc(): void {
   ipcMain.handle('lumina:asset', (_event, id: string) => showAsset(id));
   ipcMain.handle('lumina:scan', () => runScan());
   ipcMain.handle('lumina:pending-translations', () => listPendingTranslations());
+  ipcMain.handle('lumina:agent-guide', () => getAgentGuide());
   ipcMain.handle('lumina:translate-asset', (_event, id: string) => translateAssetById(id));
   ipcMain.handle('lumina:translate-pending', (_event, limit: number) => translatePending(limit));
   ipcMain.handle('lumina:doctor', () => doctor());

@@ -121,3 +121,20 @@ export interface OperationResult<T = unknown> {
   message: string;
   data?: T;
 }
+
+export interface AgentGuideInfo {
+  runbookPath: string;
+  promptPath: string;
+  helperPath: string;
+  promptText: string;
+  configPath: string;
+  indexDbPath: string;
+  translationDbPath: string;
+  logsDir: string;
+  scanRoots: ScanRoot[];
+  translator: {
+    provider: TranslatorConfig['provider'];
+    configured: boolean;
+    apiKeySource?: string;
+  };
+}

@@ -1,6 +1,6 @@
 {
   "name": "luminalink",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Chinese-first desktop manager for local AI skills, plugins, Agent files, and translated documentation.",
   "private": false,
   "main": "dist/main/index.js",

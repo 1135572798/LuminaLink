@@ -49,6 +49,14 @@
         </button>
       </header>
 
+      <div v-if="notice" :class="['notice', notice.kind]">
+        <div>
+          <strong>{{ notice.title }}</strong>
+          <p>{{ notice.detail }}</p>
+        </div>
+        <button class="ghost" @click="notice = undefined">关闭</button>
+      </div>
+
       <section v-if="activeView === 'overview'" class="content overview">
         <div class="section-title">
           <div>
@@ -93,6 +101,70 @@
             </button>
             <p v-if="!dashboard.recentAssets?.length" class="empty">还没有资产，点击“扫描资产”开始。</p>
           </div>
+        </div>
+      </section>
+
+      <section v-else-if="activeView === 'assistant'" class="content assistant-view">
+        <div class="section-title">
+          <div>
+            <h2>Codex 协助</h2>
+            <p>把 LuminaLink 的本机操作手册放到固定路径，Codex 新线程也能读取。</p>
+          </div>
+          <button class="secondary" @click="loadAgentGuide"><RefreshCw :size="16" /> 重新生成</button>
+        </div>
+
+        <div class="assistant-grid">
+          <article class="panel">
+            <div class="panel-head">
+              <h3>给 Codex 的提示词</h3>
+              <button class="primary" @click="copyAgentPrompt">
+                <Copy :size="16" /> {{ promptCopied ? '已复制' : '复制提示词' }}
+              </button>
+            </div>
+            <pre class="prompt-box">{{ agentGuide?.promptText || '正在生成 Agent 操作提示...' }}</pre>
+          </article>
+
+          <article class="panel">
+            <h3>本机固定文件</h3>
+            <div class="path-list">
+              <label>Agent 操作手册</label>
+              <code>{{ agentGuide?.runbookPath || '生成中...' }}</code>
+              <label>配置 helper</label>
+              <code>{{ agentGuide?.helperPath || '生成中...' }}</code>
+              <label>配置文件</label>
+              <code>{{ agentGuide?.configPath || '生成中...' }}</code>
+            </div>
+            <div class="assistant-actions">
+              <button class="secondary" :disabled="!agentGuide" @click="showItem(agentGuide!.runbookPath)">
+                <FolderOpen :size="16" /> 定位手册
+              </button>
+              <button class="secondary" :disabled="!agentGuide" @click="openPath(agentGuide!.runbookPath)">
+                <FileText :size="16" /> 打开手册
+              </button>
+              <button class="secondary" :disabled="!agentGuide" @click="showItem(agentGuide!.helperPath)">
+                <SquareTerminal :size="16" /> 定位 helper
+              </button>
+            </div>
+          </article>
+
+          <article class="panel">
+            <h3>当前状态</h3>
+            <div class="state-list">
+              <span>扫描目录</span>
+              <strong>{{ agentGuide?.scanRoots.length ?? 0 }} 个</strong>
+              <span>Provider</span>
+              <strong>{{ agentGuide?.translator.configured ? '已配置' : '未配置' }}</strong>
+              <span>Provider 类型</span>
+              <strong>{{ agentGuide?.translator.provider || 'unknown' }}</strong>
+            </div>
+            <p class="hint">扫描资产不需要 Provider；Provider 只影响“翻译此项”和“翻译队列”。</p>
+            <div class="assistant-actions">
+              <button class="primary" :disabled="busy" @click="scanNow">
+                <RefreshCw :size="16" :class="{ spin: busy }" /> 扫描资产
+              </button>
+              <button class="secondary" @click="runDoctor"><ShieldCheck :size="16" /> 检查环境</button>
+            </div>
+          </article>
         </div>
       </section>
 
@@ -150,6 +222,13 @@
           </div>
 
           <div v-else class="asset-list">
+            <div v-if="lastScan" class="scan-summary">
+              <strong>上次扫描</strong>
+              <span>
+                新增 {{ lastScan.created }} · 更新 {{ lastScan.updated }} · 未变 {{ lastScan.unchanged }} ·
+                失败 {{ lastScan.failed }}
+              </span>
+            </div>
             <div class="table-head">
               <span>名称</span>
               <span>类型</span>
@@ -173,7 +252,17 @@
               <span :class="['status', asset.translationStatus]">{{ statusLabel(asset.translationStatus) }}</span>
               <span class="path">{{ asset.sourcePath }}</span>
             </button>
-            <p v-if="!visibleAssets.length" class="empty">暂无资产。可以点击扫描，或添加单个文件。</p>
+            <div v-if="!visibleAssets.length" class="empty-state">
+              <Sparkles :size="30" />
+              <h3>暂无资产</h3>
+              <p>点击“扫描资产”读取本机默认目录；如果你的项目不在默认目录，可以先添加目录。</p>
+              <div>
+                <button class="primary" :disabled="busy" @click="scanNow">
+                  <RefreshCw :size="16" :class="{ spin: busy }" /> 扫描资产
+                </button>
+                <button class="secondary" @click="pickAndAddRoot"><FolderPlus :size="16" /> 添加目录</button>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -250,6 +339,7 @@ import { computed, onMounted, reactive, ref } from 'vue';
 import {
   Bot,
   Clock3,
+  Copy,
   Database,
   FilePlus2,
   FileText,
@@ -264,14 +354,17 @@ import {
   Search,
   Settings,
   ShieldCheck,
+  SquareTerminal,
   Sparkles,
   Text,
   TriangleAlert
 } from 'lucide-vue-next';
 import type { Asset, DashboardSummary, DoctorCheck } from '../shared/types';
+import type { AgentGuideInfo, ScanSummary } from '../shared/types';
 
-type ViewKey = 'overview' | 'library' | 'translations' | 'agents' | 'files' | 'migration' | 'settings';
+type ViewKey = 'overview' | 'library' | 'translations' | 'agents' | 'files' | 'migration' | 'settings' | 'assistant';
 type DetailedAsset = Asset & { sourceText?: string; translatedText?: string };
+type NoticeKind = 'success' | 'warning' | 'error' | 'info';
 
 const fallbackDashboard: DashboardSummary = {
   assetsTotal: 0,
@@ -291,6 +384,10 @@ const statusMessage = ref('正在初始化 LuminaLink...');
 const providerConfigured = ref(false);
 const assets = ref<Asset[]>([]);
 const selectedAsset = ref<DetailedAsset | undefined>();
+const notice = ref<{ kind: NoticeKind; title: string; detail: string } | undefined>();
+const lastScan = ref<ScanSummary | undefined>();
+const agentGuide = ref<AgentGuideInfo | undefined>();
+const promptCopied = ref(false);
 const detailTab = ref<'zh' | 'source' | 'meta'>('zh');
 const doctorChecks = ref<DoctorCheck[]>([]);
 const translatorForm = reactive({
@@ -316,6 +413,7 @@ const navItems = computed(() => [
   { key: 'translations', label: '翻译队列', icon: Languages, count: dashboard.pendingTranslationTotal },
   { key: 'agents', label: '项目 Agent', icon: Bot },
   { key: 'files', label: '其他文件', icon: FileText },
+  { key: 'assistant', label: 'Codex 协助', icon: Bot },
   { key: 'migration', label: '迁移备份', icon: Package },
   { key: 'settings', label: '设置', icon: Settings }
 ]);
@@ -337,11 +435,18 @@ const visibleAssets = computed(() => {
 
 onMounted(async () => {
   await refreshAll();
+  await loadAgentGuide();
 });
 
 async function refreshAll(): Promise<void> {
-  await Promise.all([loadStatus(), refreshDashboard(), refreshAssets()]);
-  statusMessage.value = 'LuminaLink 已就绪';
+  try {
+    await Promise.all([loadStatus(), refreshDashboard(), refreshAssets()]);
+    statusMessage.value = 'LuminaLink 已就绪';
+  } catch (error) {
+    const message = messageFromError(error);
+    statusMessage.value = `初始化失败：${message}`;
+    showNotice('error', '初始化失败', message);
+  }
 }
 
 async function loadStatus(): Promise<void> {
@@ -363,10 +468,26 @@ async function refreshAssets(): Promise<void> {
 async function scanNow(): Promise<void> {
   busy.value = true;
   statusMessage.value = '正在扫描本机资产...';
+  showNotice('info', '正在扫描资产', '正在读取默认目录和已添加目录，请稍候。扫描不依赖翻译 Provider。');
   try {
     const result = await window.lumina?.scan();
-    statusMessage.value = `扫描完成：新增 ${result?.created ?? 0}，更新 ${result?.updated ?? 0}，失败 ${result?.failed ?? 0}`;
-    await refreshAll();
+    if (!result) throw new Error('客户端 IPC 未返回扫描结果');
+    lastScan.value = result;
+    await Promise.all([refreshDashboard(), refreshAssets(), loadStatus()]);
+    const changed = result.created + result.updated + result.removed;
+    const detail = `新增 ${result.created}，更新 ${result.updated}，未变 ${result.unchanged}，移除 ${result.removed}，失败 ${result.failed}。`;
+    statusMessage.value = `扫描完成：${detail}`;
+    showNotice(
+      result.failed ? 'warning' : changed || result.unchanged ? 'success' : 'warning',
+      '扫描完成',
+      result.created + result.updated + result.unchanged > 0
+        ? detail
+        : `${detail}没有发现资产。请确认本机存在 Codex skills/plugins，或点击“添加目录”。`
+    );
+  } catch (error) {
+    const message = messageFromError(error);
+    statusMessage.value = `扫描失败：${message}`;
+    showNotice('error', '扫描失败', message);
   } finally {
     busy.value = false;
   }
@@ -440,7 +561,10 @@ async function runDoctor(): Promise<void> {
   const report = await window.lumina?.doctor();
   doctorChecks.value = report?.checks ?? [];
   activeView.value = 'settings';
-  statusMessage.value = '环境检查完成';
+  const failed = doctorChecks.value.filter((item) => item.status === 'fail').length;
+  const warned = doctorChecks.value.filter((item) => item.status === 'warn').length;
+  statusMessage.value = `环境检查完成：失败 ${failed}，警告 ${warned}`;
+  showNotice(failed ? 'error' : warned ? 'warning' : 'success', '环境检查完成', `失败 ${failed}，警告 ${warned}`);
 }
 
 async function saveTranslator(): Promise<void> {
@@ -453,6 +577,29 @@ async function saveTranslator(): Promise<void> {
   });
   statusMessage.value = result?.message ?? '翻译配置已保存';
   await loadStatus();
+  await loadAgentGuide();
+}
+
+async function loadAgentGuide(): Promise<void> {
+  try {
+    if (!window.lumina?.agentGuide) {
+      throw new Error('当前不是 Electron 桌面运行环境，无法生成本机 Agent 手册。');
+    }
+    const result = await window.lumina?.agentGuide();
+    agentGuide.value = result?.data;
+  } catch (error) {
+    showNotice('error', 'Agent 手册生成失败', messageFromError(error));
+  }
+}
+
+async function copyAgentPrompt(): Promise<void> {
+  if (!agentGuide.value?.promptText) return;
+  await navigator.clipboard.writeText(agentGuide.value.promptText);
+  promptCopied.value = true;
+  showNotice('success', '已复制给 Codex 的提示词', '新开 Codex 对话时粘贴这段话，它会先读取本机 Agent 操作手册。');
+  window.setTimeout(() => {
+    promptCopied.value = false;
+  }, 1800);
 }
 
 async function openPath(target: string): Promise<void> {
@@ -492,5 +639,13 @@ function statusLabel(status: Asset['translationStatus']): string {
     failed: '失败'
   };
   return labels[status];
+}
+
+function showNotice(kind: NoticeKind, title: string, detail: string): void {
+  notice.value = { kind, title, detail };
+}
+
+function messageFromError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 </script>

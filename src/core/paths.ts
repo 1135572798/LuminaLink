@@ -8,6 +8,9 @@ export interface LuminaPaths {
   indexDbPath: string;
   translationDbPath: string;
   logsDir: string;
+  agentRunbookPath: string;
+  agentPromptPath: string;
+  agentHelperPath: string;
 }
 
 export function getLuminaPaths(): LuminaPaths {
@@ -23,7 +26,10 @@ export function getLuminaPaths(): LuminaPaths {
     configPath: path.join(appDataDir, 'config.json'),
     indexDbPath: path.join(localDataDir, 'luminalink.sqlite'),
     translationDbPath: path.join(localDataDir, 'translation-cache.sqlite'),
-    logsDir: path.join(localDataDir, 'logs')
+    logsDir: path.join(localDataDir, 'logs'),
+    agentRunbookPath: path.join(appDataDir, 'AGENT_RUNBOOK.md'),
+    agentPromptPath: path.join(appDataDir, 'CODEX_PROMPT.txt'),
+    agentHelperPath: path.join(appDataDir, 'LuminaLink-Agent.ps1')
   };
 }
 
