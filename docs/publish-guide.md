@@ -49,7 +49,7 @@ gh auth status
 在项目根目录执行：
 
 ```powershell
-cd C:\Users\congj\Documents\LuminaLink
+cd <project-root>
 git branch -M main
 gh repo create 1135572798/LuminaLink --public --source . --remote origin --push
 ```
@@ -81,7 +81,7 @@ Visibility: Public
 创建完成后，在项目根目录执行：
 
 ```powershell
-cd C:\Users\congj\Documents\LuminaLink
+cd <project-root>
 git branch -M main
 git remote add origin https://github.com/1135572798/LuminaLink.git
 git push -u origin main
@@ -122,7 +122,7 @@ pnpm dev
 导入旧电脑迁移包：
 
 ```powershell
-pnpm luminalink migrate import "D:\backup\luminalink-migration.json"
+pnpm luminalink migrate import "<backup-path>\luminalink-migration.json"
 pnpm luminalink scan
 ```
 

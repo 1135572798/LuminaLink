@@ -22,8 +22,7 @@ hard-coded paths from one developer machine.
 
 ## Portability Rules
 
-- Do not hard-code user-specific absolute paths such as
-  `C:\Users\congj\...` in application source code.
+- Do not hard-code user-specific absolute paths in application source code.
 - Use environment-derived paths where possible:
   - `%USERPROFILE%`
   - `%APPDATA%`
@@ -92,10 +91,8 @@ user.
 
 ## Documentation Rule
 
-When implementing durable project behavior, update a concise user-facing record
-under the project documentation folder:
+When implementing durable project behavior for a specific user or workstation,
+keep that user's private reference notes outside the public repository.
 
-`C:\Users\congj\OneDrive\文档\Codex项目资料库\LuminaLink`
-
-These docs are for the project owner. They should describe what was built, how
-to run it, where local config is stored, and any important caveats.
+Public repository docs should describe portable behavior: how to run the app,
+where local config is stored, how migration works, and any important caveats.
