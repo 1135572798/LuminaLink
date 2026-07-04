@@ -295,6 +295,21 @@ AGENT_RUNBOOK.md
 - `docs/user-flow-data-flow.md`
 - `docs/implementation-checklist.md`
 - `docs/ui-concepts.md`
+- `docs/publish-guide.md`
+
+## 开源发布
+
+目标公开仓库：
+
+```text
+https://github.com/1135572798/LuminaLink
+```
+
+当前机器还没有安装 GitHub CLI，目标远端仓库也尚未创建。完整发布步骤见：
+
+```text
+docs/publish-guide.md
+```
 
 ## 隐私与安全
 
