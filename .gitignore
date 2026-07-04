@@ -1,0 +1,31 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+out/
+release/
+build/
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# Machine-local LuminaLink data
+.luminalink/
+*.db
+*.sqlite
+*.sqlite3
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

@@ -1,0 +1,26 @@
+{
+  "scanRoots": [
+    {
+      "id": "codex-skills",
+      "label": "Codex Skills",
+      "pathExpression": "%USERPROFILE%/.codex/skills",
+      "kind": "codex_skills",
+      "enabled": true
+    },
+    {
+      "id": "codex-plugins",
+      "label": "Codex Plugins",
+      "pathExpression": "%USERPROFILE%/.codex/plugins/cache",
+      "kind": "codex_plugins",
+      "enabled": true
+    },
+    {
+      "id": "agent-skills",
+      "label": "User Agent Skills",
+      "pathExpression": "%USERPROFILE%/.agents/skills",
+      "kind": "agents_skills",
+      "enabled": true
+    }
+  ],
+  "agentFileNames": ["AGENTS.md", "AGENT.md", "Agent.md", "CLAUDE.md", ".cursorrules"]
+}
