@@ -305,7 +305,7 @@ AGENT_RUNBOOK.md
 https://github.com/1135572798/LuminaLink
 ```
 
-当前机器还没有安装 GitHub CLI，目标远端仓库也尚未创建。完整发布步骤见：
+当前仓库已公开发布。完整发布、换电脑使用和维护步骤见：
 
 ```text
 docs/publish-guide.md

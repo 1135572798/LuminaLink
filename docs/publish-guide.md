@@ -6,19 +6,32 @@
 
 ## 当前本地状态
 
-本地项目已经是 Git 仓库，并已有初始提交：
+本地项目已经是 Git 仓库，并已推送到 GitHub 公开仓库：
 
 ```text
-73ac6db Initial LuminaLink MVP
+https://github.com/1135572798/LuminaLink
 ```
 
-当前还未完成 GitHub 上传，原因是：
+当前远端：
 
-- 本机没有安装 GitHub CLI：`gh`。
-- 目标远端仓库 `1135572798/LuminaLink` 尚不存在。
-- 当前仓库还没有配置 `origin` 远端。
+```text
+origin  https://github.com/1135572798/LuminaLink.git
+branch  main
+visibility public
+```
 
-## 推荐发布方式：GitHub CLI
+首次公开发布已完成。后续维护时只需要正常提交并推送：
+
+```powershell
+git status --short
+git add <changed-files>
+git commit -m "Describe the change"
+git push
+```
+
+## 如果需要重新创建仓库
+
+一般不需要重新创建仓库。只有在仓库被删除、换 owner，或要重建远端时才需要执行本节。
 
 安装 GitHub CLI：
 
@@ -139,5 +152,6 @@ git status --short
 2. 检查 `git status --short`，确认没有无关改动。
 3. 检查 `gh --version` 和 `gh auth status`。
 4. 如果没有 `gh` 或没有登录，不要猜测 token，不要输出或保存密钥。
-5. 目标仓库不存在时，优先让用户安装并登录 `gh`，再执行 `gh repo create`。
-6. 推送完成后回报远端地址、分支、提交 SHA 和验证命令结果。
+5. 目标仓库已存在时，只需要 `git push`。
+6. 目标仓库不存在时，优先让用户安装并登录 `gh`，再执行 `gh repo create`。
+7. 推送完成后回报远端地址、分支、提交 SHA 和验证命令结果。
