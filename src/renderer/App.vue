@@ -121,18 +121,18 @@
                 <Copy :size="16" /> {{ promptCopied ? '已复制' : '复制提示词' }}
               </button>
             </div>
-            <pre class="prompt-box">{{ agentGuide?.promptText || '正在生成 Agent 操作提示...' }}</pre>
+            <pre class="prompt-box">{{ agentGuide?.promptText || fallbackAgentPrompt }}</pre>
           </article>
 
           <article class="panel">
             <h3>本机固定文件</h3>
             <div class="path-list">
               <label>Agent 操作手册</label>
-              <code>{{ agentGuide?.runbookPath || '生成中...' }}</code>
+              <code>{{ agentGuide?.runbookPath || '%APPDATA%/LuminaLink/AGENT_RUNBOOK.md' }}</code>
               <label>配置 helper</label>
-              <code>{{ agentGuide?.helperPath || '生成中...' }}</code>
+              <code>{{ agentGuide?.helperPath || '%APPDATA%/LuminaLink/LuminaLink-Agent.ps1' }}</code>
               <label>配置文件</label>
-              <code>{{ agentGuide?.configPath || '生成中...' }}</code>
+              <code>{{ agentGuide?.configPath || '%APPDATA%/LuminaLink/config.json' }}</code>
             </div>
             <div class="assistant-actions">
               <button class="secondary" :disabled="!agentGuide" @click="showItem(agentGuide!.runbookPath)">
@@ -151,11 +151,11 @@
             <h3>当前状态</h3>
             <div class="state-list">
               <span>扫描目录</span>
-              <strong>{{ agentGuide?.scanRoots.length ?? 0 }} 个</strong>
+              <strong>{{ agentGuide ? `${agentGuide.scanRoots.length} 个` : '等待连接' }}</strong>
               <span>Provider</span>
-              <strong>{{ agentGuide?.translator.configured ? '已配置' : '未配置' }}</strong>
+              <strong>{{ agentGuide ? (agentGuide.translator.configured ? '已配置' : '未配置') : '等待连接' }}</strong>
               <span>Provider 类型</span>
-              <strong>{{ agentGuide?.translator.provider || 'unknown' }}</strong>
+              <strong>{{ agentGuide?.translator.provider || '等待连接' }}</strong>
             </div>
             <p class="hint">扫描资产不需要 Provider；Provider 只影响“翻译此项”和“翻译队列”。</p>
             <div class="assistant-actions">
@@ -397,6 +397,19 @@ const translatorForm = reactive({
   apiKeySource: ''
 });
 const dashboard = reactive<DashboardSummary>({ ...fallbackDashboard });
+const fallbackAgentPrompt = `请帮我配置 LuminaLink。
+
+请先读取这台电脑上的 LuminaLink Agent 操作手册：
+%APPDATA%/LuminaLink/AGENT_RUNBOOK.md
+
+如果这个文件还不存在，请让我先安装并打开最新版本 LuminaLink，然后进入“Codex 协助”页面。
+
+操作要求：
+1. 只检查和修改 LuminaLink 本机配置。
+2. 不要输出或保存 raw API key/token/cookie/私钥。
+3. 先检查扫描目录和配置文件。
+4. 扫描资产不需要 Provider；Provider 只影响翻译功能。
+5. 如果需要翻译 Provider，优先使用 Windows 用户/系统环境变量 OPENAI_API_KEY。`;
 
 const filters = [
   { key: 'all', label: '全部' },
@@ -583,18 +596,17 @@ async function saveTranslator(): Promise<void> {
 async function loadAgentGuide(): Promise<void> {
   try {
     if (!window.lumina?.agentGuide) {
-      throw new Error('当前不是 Electron 桌面运行环境，无法生成本机 Agent 手册。');
+      throw new Error('本机桥接未连接，已显示通用提示词。请安装 v0.1.2 或更新版本后重试。');
     }
     const result = await window.lumina?.agentGuide();
     agentGuide.value = result?.data;
   } catch (error) {
-    showNotice('error', 'Agent 手册生成失败', messageFromError(error));
+    showNotice('warning', 'Agent 手册暂未生成', messageFromError(error));
   }
 }
 
 async function copyAgentPrompt(): Promise<void> {
-  if (!agentGuide.value?.promptText) return;
-  await navigator.clipboard.writeText(agentGuide.value.promptText);
+  await navigator.clipboard.writeText(agentGuide.value?.promptText || fallbackAgentPrompt);
   promptCopied.value = true;
   showNotice('success', '已复制给 Codex 的提示词', '新开 Codex 对话时粘贴这段话，它会先读取本机 Agent 操作手册。');
   window.setTimeout(() => {

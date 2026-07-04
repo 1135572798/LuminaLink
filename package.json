@@ -1,6 +1,6 @@
 {
   "name": "luminalink",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Chinese-first desktop manager for local AI skills, plugins, Agent files, and translated documentation.",
   "private": false,
   "main": "dist/main/index.js",
@@ -8,7 +8,7 @@
   "scripts": {
     "dev": "pnpm build:main && concurrently -k \"vite --host 127.0.0.1\" \"wait-on tcp:5173 && electron .\"",
     "build": "vue-tsc --noEmit && vite build && pnpm build:main",
-    "build:main": "tsc -p tsconfig.node.json",
+    "build:main": "tsc -p tsconfig.node.json && node scripts/copy-preload.mjs",
     "pack": "pnpm build && electron-builder --dir",
     "dist:win": "pnpm build && node scripts/package-win.mjs",
     "preview": "vite preview --host 127.0.0.1",

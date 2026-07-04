@@ -1,4 +1,5 @@
 import path from 'node:path';
+import fs from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
 import {
@@ -32,10 +33,14 @@ async function createWindow(): Promise<void> {
     title: 'LuminaLink',
     backgroundColor: '#f7faf9',
     webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
+      preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
       nodeIntegration: false
     }
+  });
+
+  mainWindow.webContents.once('did-finish-load', () => {
+    void runSmokeTestIfRequested();
   });
 
   if (app.isPackaged) {
@@ -44,6 +49,86 @@ async function createWindow(): Promise<void> {
     await mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL ?? 'http://127.0.0.1:5173');
     mainWindow.webContents.openDevTools({ mode: 'detach' });
   }
+}
+
+async function runSmokeTestIfRequested(): Promise<void> {
+  const outputFile = process.env.LUMINALINK_SMOKE_TEST_FILE;
+  if (!outputFile || !mainWindow) return;
+  try {
+    const screenshotDir = process.env.LUMINALINK_SMOKE_SCREENSHOT_DIR;
+    const result = await mainWindow.webContents.executeJavaScript(`
+      (async () => {
+        const hasLumina = Boolean(window.lumina);
+        const methods = hasLumina ? Object.keys(window.lumina).sort() : [];
+        const status = hasLumina ? await window.lumina.status() : undefined;
+        const scan = hasLumina ? await window.lumina.scan() : undefined;
+        const guide = hasLumina ? await window.lumina.agentGuide() : undefined;
+        return {
+          hasLumina,
+          methods,
+          statusOk: Boolean(status && status.ok),
+          scanOk: Boolean(scan && typeof scan.scannedRoots === 'number'),
+          agentGuideOk: Boolean(guide && guide.ok && guide.data && guide.data.runbookPath),
+          scan,
+          agentRunbookPath: guide && guide.data ? guide.data.runbookPath : undefined
+        };
+      })()
+    `);
+    if (screenshotDir) {
+      await ensureSmokeScreenshotDir(screenshotDir);
+      await runUiSmokeInteractions(screenshotDir);
+    }
+    await fs.writeFile(outputFile, `${JSON.stringify(result, null, 2)}\n`, 'utf8');
+  } catch (error) {
+    await fs.writeFile(
+      outputFile,
+      `${JSON.stringify(
+        {
+          hasLumina: false,
+          error: error instanceof Error ? error.message : String(error)
+        },
+        null,
+        2
+      )}\n`,
+      'utf8'
+    );
+  } finally {
+    app.quit();
+  }
+}
+
+async function ensureSmokeScreenshotDir(screenshotDir: string): Promise<void> {
+  await fs.mkdir(screenshotDir, { recursive: true });
+}
+
+async function captureSmokeScreenshot(screenshotDir: string, fileName: string): Promise<void> {
+  if (!mainWindow) return;
+  const image = await mainWindow.webContents.capturePage();
+  await fs.writeFile(path.join(screenshotDir, fileName), image.toPNG());
+}
+
+async function runUiSmokeInteractions(screenshotDir: string): Promise<void> {
+  if (!mainWindow) return;
+  await mainWindow.webContents.executeJavaScript(`
+    new Promise((resolve) => {
+      const button = Array.from(document.querySelectorAll('button')).find((item) =>
+        item.textContent && item.textContent.includes('扫描资产')
+      );
+      if (button) button.click();
+      window.setTimeout(resolve, 1200);
+    })
+  `);
+  await captureSmokeScreenshot(screenshotDir, '01-scan-result.png');
+  await mainWindow.webContents.executeJavaScript(`
+    new Promise((resolve) => {
+      const button = Array.from(document.querySelectorAll('button')).find((item) =>
+        item.textContent && item.textContent.includes('Codex 协助')
+      );
+      if (button) button.click();
+      window.setTimeout(resolve, 900);
+    })
+  `);
+  await captureSmokeScreenshot(screenshotDir, '02-codex-assist.png');
 }
 
 app.whenReady().then(async () => {
