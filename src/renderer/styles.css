@@ -2,6 +2,14 @@
   box-sizing: border-box;
 }
 
+html,
+body,
+#app {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+}
+
 body {
   margin: 0;
   min-width: 1080px;
@@ -10,6 +18,32 @@ body {
   font-family:
     Inter, "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", system-ui, -apple-system, BlinkMacSystemFont,
     sans-serif;
+}
+
+* {
+  scrollbar-color: #aabfbb transparent;
+  scrollbar-width: thin;
+}
+
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background: #aabfbb;
+  background-clip: content-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: #7f9994;
+  background-clip: content-box;
 }
 
 button,
@@ -33,21 +67,27 @@ button:disabled {
   display: grid;
   grid-template-columns: 252px minmax(0, 1fr);
   height: 100vh;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .sidebar {
   display: flex;
   flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
   border-right: 1px solid #dfe8e6;
   background: #fbfdfc;
-  padding: 24px 18px;
+  padding: 18px 18px;
+  -webkit-app-region: drag;
 }
 
 .brand {
   display: flex;
   gap: 12px;
   align-items: center;
-  margin-bottom: 32px;
+  min-height: 46px;
+  margin-bottom: 24px;
 }
 
 .brand-mark {
@@ -79,6 +119,7 @@ button:disabled {
 .nav {
   display: grid;
   gap: 6px;
+  -webkit-app-region: no-drag;
 }
 
 .nav-item {
@@ -110,6 +151,7 @@ button:disabled {
   display: grid;
   gap: 14px;
   margin-top: auto;
+  -webkit-app-region: no-drag;
 }
 
 .provider-box {
@@ -150,7 +192,10 @@ button:disabled {
 .main {
   display: grid;
   min-width: 0;
+  min-height: 0;
+  height: 100vh;
   grid-template-rows: 72px auto minmax(0, 1fr) 40px;
+  overflow: hidden;
 }
 
 .topbar {
@@ -159,7 +204,8 @@ button:disabled {
   gap: 12px;
   border-bottom: 1px solid #dfe8e6;
   background: #ffffff;
-  padding: 14px 22px;
+  padding: 14px 156px 14px 22px;
+  -webkit-app-region: drag;
 }
 
 .search {
@@ -172,6 +218,12 @@ button:disabled {
   border-radius: 8px;
   background: #ffffff;
   padding: 0 14px;
+  -webkit-app-region: no-drag;
+}
+
+.topbar button,
+.topbar input {
+  -webkit-app-region: no-drag;
 }
 
 .search input {
@@ -429,16 +481,23 @@ button:disabled {
 .workspace {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 390px;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .asset-pane {
+  display: flex;
+  flex-direction: column;
   min-width: 0;
+  min-height: 0;
+  overflow: hidden;
   border-right: 1px solid #dfe8e6;
   background: #ffffff;
 }
 
 .tabs {
   display: flex;
+  flex: 0 0 auto;
   gap: 8px;
   align-items: center;
   min-height: 58px;
@@ -465,13 +524,15 @@ button:disabled {
 
 .queue-actions {
   display: flex;
+  flex: 0 0 auto;
   gap: 10px;
   border-bottom: 1px solid #dfe8e6;
   padding: 12px 18px;
 }
 
 .asset-list {
-  height: calc(100vh - 170px);
+  flex: 1 1 auto;
+  min-height: 0;
   overflow: auto;
 }
 
@@ -583,12 +644,17 @@ button:disabled {
 }
 
 .detail-pane {
+  display: flex;
+  flex-direction: column;
   min-width: 0;
+  min-height: 0;
+  overflow: hidden;
   background: #fbfdfc;
-  padding: 22px;
+  padding: 22px 22px 0;
 }
 
 .detail-head {
+  flex: 0 0 auto;
   display: flex;
   gap: 12px;
   align-items: center;
@@ -612,13 +678,15 @@ button:disabled {
 
 .detail-tabs {
   display: flex;
+  flex: 0 0 auto;
   gap: 8px;
   border-bottom: 1px solid #dfe8e6;
   padding-bottom: 10px;
 }
 
 .detail-body {
-  height: calc(100vh - 300px);
+  flex: 1 1 auto;
+  min-height: 0;
   overflow: auto;
   padding: 16px 0;
 }
@@ -665,8 +733,12 @@ button:disabled {
 
 .detail-actions {
   display: grid;
+  flex: 0 0 auto;
   grid-template-columns: 1fr 1fr;
   gap: 10px;
+  border-top: 1px solid #dfe8e6;
+  background: #fbfdfc;
+  padding: 14px 0 22px;
 }
 
 .detail-actions .primary {
@@ -709,7 +781,8 @@ button:disabled {
 
 .empty-detail {
   display: grid;
-  height: 100%;
+  flex: 1 1 auto;
+  min-height: 0;
   place-items: center;
   align-content: center;
   text-align: center;
@@ -727,6 +800,9 @@ button:disabled {
 }
 
 .settings-panel {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
   margin: 18px;
 }
 

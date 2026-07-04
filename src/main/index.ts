@@ -1,7 +1,7 @@
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
-import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from 'electron';
 import {
   addFile,
   addRoot,
@@ -32,12 +32,21 @@ async function createWindow(): Promise<void> {
     minHeight: 760,
     title: 'LuminaLink',
     backgroundColor: '#f7faf9',
+    autoHideMenuBar: true,
+    titleBarStyle: 'hidden',
+    titleBarOverlay: {
+      color: '#ffffff',
+      symbolColor: '#667579',
+      height: 36
+    },
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
       nodeIntegration: false
     }
   });
+  Menu.setApplicationMenu(null);
+  mainWindow.setMenuBarVisibility(false);
 
   mainWindow.webContents.once('did-finish-load', () => {
     void runSmokeTestIfRequested();
@@ -70,15 +79,17 @@ async function runSmokeTestIfRequested(): Promise<void> {
           scanOk: Boolean(scan && typeof scan.scannedRoots === 'number'),
           agentGuideOk: Boolean(guide && guide.ok && guide.data && guide.data.runbookPath),
           scan,
-          agentRunbookPath: guide && guide.data ? guide.data.runbookPath : undefined
+          agentRunbookPath: guide && guide.data ? guide.data.runbookPath : undefined,
+          menuBarVisible: ${mainWindow.isMenuBarVisible()}
         };
       })()
     `);
+    let layout;
     if (screenshotDir) {
       await ensureSmokeScreenshotDir(screenshotDir);
-      await runUiSmokeInteractions(screenshotDir);
+      layout = await runUiSmokeInteractions(screenshotDir);
     }
-    await fs.writeFile(outputFile, `${JSON.stringify(result, null, 2)}\n`, 'utf8');
+    await fs.writeFile(outputFile, `${JSON.stringify({ ...result, layout }, null, 2)}\n`, 'utf8');
   } catch (error) {
     await fs.writeFile(
       outputFile,
@@ -107,7 +118,32 @@ async function captureSmokeScreenshot(screenshotDir: string, fileName: string): 
   await fs.writeFile(path.join(screenshotDir, fileName), image.toPNG());
 }
 
-async function runUiSmokeInteractions(screenshotDir: string): Promise<void> {
+async function collectLayoutMetrics(): Promise<unknown> {
+  if (!mainWindow) return undefined;
+  return mainWindow.webContents.executeJavaScript(`
+    (() => {
+      const detailActions = document.querySelector('.detail-actions');
+      const actionsRect = detailActions ? detailActions.getBoundingClientRect() : undefined;
+      const appShell = document.querySelector('.app-shell');
+      const root = document.documentElement;
+      return {
+        outerScroll: root.scrollHeight > window.innerHeight || document.body.scrollHeight > window.innerHeight,
+        viewport: { width: window.innerWidth, height: window.innerHeight },
+        documentHeight: root.scrollHeight,
+        bodyHeight: document.body.scrollHeight,
+        appShellHeight: appShell ? appShell.getBoundingClientRect().height : 0,
+        detailActionsVisible: Boolean(
+          actionsRect &&
+            actionsRect.top >= 0 &&
+            actionsRect.bottom <= window.innerHeight &&
+            actionsRect.height > 0
+        )
+      };
+    })()
+  `);
+}
+
+async function runUiSmokeInteractions(screenshotDir: string): Promise<unknown> {
   if (!mainWindow) return;
   await mainWindow.webContents.executeJavaScript(`
     new Promise((resolve) => {
@@ -121,6 +157,17 @@ async function runUiSmokeInteractions(screenshotDir: string): Promise<void> {
   await captureSmokeScreenshot(screenshotDir, '01-scan-result.png');
   await mainWindow.webContents.executeJavaScript(`
     new Promise((resolve) => {
+      const row = Array.from(document.querySelectorAll('.asset-row')).find((item) =>
+        item.textContent && item.textContent.includes('Spreadsheets')
+      );
+      if (row) row.click();
+      window.setTimeout(resolve, 500);
+    })
+  `);
+  await captureSmokeScreenshot(screenshotDir, '02-detail-actions.png');
+  const detailLayout = await collectLayoutMetrics();
+  await mainWindow.webContents.executeJavaScript(`
+    new Promise((resolve) => {
       const button = Array.from(document.querySelectorAll('button')).find((item) =>
         item.textContent && item.textContent.trim() === 'Agent'
       );
@@ -128,7 +175,7 @@ async function runUiSmokeInteractions(screenshotDir: string): Promise<void> {
       window.setTimeout(resolve, 700);
     })
   `);
-  await captureSmokeScreenshot(screenshotDir, '02-agent-filter.png');
+  await captureSmokeScreenshot(screenshotDir, '03-agent-filter.png');
   await mainWindow.webContents.executeJavaScript(`
     new Promise((resolve) => {
       const button = Array.from(document.querySelectorAll('button')).find((item) =>
@@ -138,7 +185,9 @@ async function runUiSmokeInteractions(screenshotDir: string): Promise<void> {
       window.setTimeout(resolve, 900);
     })
   `);
-  await captureSmokeScreenshot(screenshotDir, '03-codex-assist.png');
+  await captureSmokeScreenshot(screenshotDir, '04-codex-assist.png');
+  const finalLayout = await collectLayoutMetrics();
+  return { detail: detailLayout, final: finalLayout };
 }
 
 app.whenReady().then(async () => {
