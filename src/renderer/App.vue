@@ -409,7 +409,6 @@
                 </span>
                 <span
                   class="asset-copy"
-                  :title="assetPreviewFullText(asset)"
                   @mouseenter="showDescriptionTooltip($event, asset)"
                   @mousemove="moveDescriptionTooltip"
                   @mouseleave="hideDescriptionTooltip"

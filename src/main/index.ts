@@ -319,7 +319,8 @@ async function runHoverAndContextMenuSmoke(screenshotDir: string): Promise<unkno
     (() => ({
       visible: Boolean(document.querySelector('.description-tooltip')),
       textLength: document.querySelector('.description-tooltip')?.textContent?.length ?? 0,
-      label: document.querySelector('.description-tooltip strong')?.textContent || ''
+      label: document.querySelector('.description-tooltip strong')?.textContent || '',
+      nativeTitle: document.querySelector('.asset-copy')?.getAttribute('title') || ''
     }))()
   `);
   await mainWindow.webContents.executeJavaScript(`
