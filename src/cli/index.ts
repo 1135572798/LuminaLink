@@ -76,7 +76,7 @@ async function main(): Promise<void> {
   }
 
   if (command === 'config' && args[1] === 'set-translator') {
-    const provider = option('--provider', 'noop') as 'noop' | 'openai' | 'openai-compatible';
+    const provider = option('--provider', 'noop') as 'noop' | 'openai' | 'deepseek' | 'openai-compatible';
     print(
       await setTranslatorConfig({
         provider,

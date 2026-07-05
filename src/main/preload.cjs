@@ -9,7 +9,13 @@ const api = {
   pendingTranslations: () => ipcRenderer.invoke('lumina:pending-translations'),
   agentGuide: () => ipcRenderer.invoke('lumina:agent-guide'),
   translateAsset: (id) => ipcRenderer.invoke('lumina:translate-asset', id),
+  translateAssetLive: (id) => ipcRenderer.invoke('lumina:translate-asset-live', id),
   translatePending: (limit = 10) => ipcRenderer.invoke('lumina:translate-pending', limit),
+  onTranslationProgress: (listener) => {
+    const handler = (_event, payload) => listener(payload);
+    ipcRenderer.on('lumina:translation-progress', handler);
+    return () => ipcRenderer.removeListener('lumina:translation-progress', handler);
+  },
   doctor: () => ipcRenderer.invoke('lumina:doctor'),
   addRoot: (pathExpression, kind) => ipcRenderer.invoke('lumina:add-root', pathExpression, kind),
   setTranslator: (translator) => ipcRenderer.invoke('lumina:set-translator', translator),
@@ -17,7 +23,8 @@ const api = {
   pickFile: () => ipcRenderer.invoke('lumina:pick-file'),
   pickDirectory: () => ipcRenderer.invoke('lumina:pick-directory'),
   openPath: (target) => ipcRenderer.invoke('lumina:open-path', target),
-  showItem: (target) => ipcRenderer.invoke('lumina:show-item', target)
+  showItem: (target) => ipcRenderer.invoke('lumina:show-item', target),
+  openReader: (payload) => ipcRenderer.invoke('lumina:open-reader', payload)
 };
 
 contextBridge.exposeInMainWorld('lumina', api);

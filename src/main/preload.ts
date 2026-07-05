@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import type { ScanRootKind, TranslatorConfig } from '../shared/types.js';
+import type { ReaderWindowPayload, ScanRootKind, TranslationProgressEvent, TranslatorConfig } from '../shared/types.js';
 
 const api = {
   status: () => ipcRenderer.invoke('lumina:status'),
@@ -10,7 +10,13 @@ const api = {
   pendingTranslations: () => ipcRenderer.invoke('lumina:pending-translations'),
   agentGuide: () => ipcRenderer.invoke('lumina:agent-guide'),
   translateAsset: (id: string) => ipcRenderer.invoke('lumina:translate-asset', id),
+  translateAssetLive: (id: string) => ipcRenderer.invoke('lumina:translate-asset-live', id),
   translatePending: (limit = 10) => ipcRenderer.invoke('lumina:translate-pending', limit),
+  onTranslationProgress: (listener: (event: TranslationProgressEvent) => void) => {
+    const handler = (_event: Electron.IpcRendererEvent, payload: TranslationProgressEvent) => listener(payload);
+    ipcRenderer.on('lumina:translation-progress', handler);
+    return () => ipcRenderer.removeListener('lumina:translation-progress', handler);
+  },
   doctor: () => ipcRenderer.invoke('lumina:doctor'),
   addRoot: (pathExpression: string, kind: ScanRootKind) =>
     ipcRenderer.invoke('lumina:add-root', pathExpression, kind),
@@ -19,7 +25,8 @@ const api = {
   pickFile: () => ipcRenderer.invoke('lumina:pick-file'),
   pickDirectory: () => ipcRenderer.invoke('lumina:pick-directory'),
   openPath: (target: string) => ipcRenderer.invoke('lumina:open-path', target),
-  showItem: (target: string) => ipcRenderer.invoke('lumina:show-item', target)
+  showItem: (target: string) => ipcRenderer.invoke('lumina:show-item', target),
+  openReader: (payload: ReaderWindowPayload) => ipcRenderer.invoke('lumina:open-reader', payload)
 };
 
 contextBridge.exposeInMainWorld('lumina', api);

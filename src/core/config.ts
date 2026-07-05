@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import type { AppConfig, ScanRoot } from '../shared/types.js';
+import { withTranslatorDefaults } from '../shared/provider-presets.js';
 import { ensureDir, pathExists } from './fs-utils.js';
 import { expandPathExpression, getLuminaPaths } from './paths.js';
 
@@ -58,10 +59,10 @@ export async function loadConfig(): Promise<AppConfig> {
   const merged = {
     ...defaultConfig,
     ...parsed,
-    translator: {
+    translator: withTranslatorDefaults({
       ...defaultConfig.translator,
       ...parsed.translator
-    },
+    }),
     scanRoots
   };
   if (scanRoots.length !== (parsed.scanRoots?.length ?? 0)) {

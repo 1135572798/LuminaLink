@@ -17,7 +17,7 @@ import {
   translateAssetById,
   translatePending
 } from '../core/app-service.js';
-import type { ScanRootKind } from '../shared/types.js';
+import type { ReaderWindowPayload, ScanRootKind } from '../shared/types.js';
 import type { TranslatorConfig } from '../shared/types.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -63,6 +63,7 @@ async function createWindow(): Promise<void> {
 async function runSmokeTestIfRequested(): Promise<void> {
   const outputFile = process.env.LUMINALINK_SMOKE_TEST_FILE;
   if (!outputFile || !mainWindow) return;
+  let smokeExitCode = 0;
   try {
     const screenshotDir = process.env.LUMINALINK_SMOKE_SCREENSHOT_DIR;
     const result = await mainWindow.webContents.executeJavaScript(`
@@ -103,8 +104,9 @@ async function runSmokeTestIfRequested(): Promise<void> {
       )}\n`,
       'utf8'
     );
+    smokeExitCode = 1;
   } finally {
-    app.quit();
+    app.exit(smokeExitCode);
   }
 }
 
@@ -124,6 +126,13 @@ async function collectLayoutMetrics(): Promise<unknown> {
     (() => {
       const detailActions = document.querySelector('.detail-actions');
       const actionsRect = detailActions ? detailActions.getBoundingClientRect() : undefined;
+      const detailPane = document.querySelector('.detail-pane');
+      const detailPaneRect = detailPane ? detailPane.getBoundingClientRect() : undefined;
+      const logbar = document.querySelector('.logbar');
+      const logbarRect = logbar ? logbar.getBoundingClientRect() : undefined;
+      const resizer = document.querySelector('.pane-resizer');
+      const readerButton = document.querySelector('.reader-button');
+      const detailText = document.querySelector('.detail-body')?.textContent || '';
       const appShell = document.querySelector('.app-shell');
       const root = document.documentElement;
       return {
@@ -137,6 +146,16 @@ async function collectLayoutMetrics(): Promise<unknown> {
             actionsRect.top >= 0 &&
             actionsRect.bottom <= window.innerHeight &&
             actionsRect.height > 0
+        ),
+        detailPaneWidth: detailPaneRect ? Math.round(detailPaneRect.width) : 0,
+        resizerExists: Boolean(resizer),
+        readerButtonVisible: Boolean(readerButton && readerButton.getBoundingClientRect().height > 0),
+        escapedNewlineVisible: detailText.includes('\\\\n'),
+        logbarPinnedToBottom: Boolean(
+          logbarRect &&
+            logbarRect.top >= 0 &&
+            Math.abs(window.innerHeight - logbarRect.bottom) <= 2 &&
+            logbarRect.height > 0
         )
       };
     })()
@@ -157,6 +176,17 @@ async function runUiSmokeInteractions(screenshotDir: string): Promise<unknown> {
   await captureSmokeScreenshot(screenshotDir, '01-scan-result.png');
   await mainWindow.webContents.executeJavaScript(`
     new Promise((resolve) => {
+      const button = Array.from(document.querySelectorAll('button')).find((item) =>
+        item.textContent && item.textContent.includes('关闭')
+      );
+      if (button) button.click();
+      window.setTimeout(resolve, 500);
+    })
+  `);
+  await captureSmokeScreenshot(screenshotDir, '02-no-notice-logbar.png');
+  const noNoticeLayout = await collectLayoutMetrics();
+  await mainWindow.webContents.executeJavaScript(`
+    new Promise((resolve) => {
       const row = Array.from(document.querySelectorAll('.asset-row')).find((item) =>
         item.textContent && item.textContent.includes('Spreadsheets')
       );
@@ -164,30 +194,114 @@ async function runUiSmokeInteractions(screenshotDir: string): Promise<unknown> {
       window.setTimeout(resolve, 500);
     })
   `);
-  await captureSmokeScreenshot(screenshotDir, '02-detail-actions.png');
+  await captureSmokeScreenshot(screenshotDir, '03-detail-actions.png');
+  const readerOpened = await openReaderDuringSmoke();
   const detailLayout = await collectLayoutMetrics();
   await mainWindow.webContents.executeJavaScript(`
     new Promise((resolve) => {
-      const button = Array.from(document.querySelectorAll('button')).find((item) =>
-        item.textContent && item.textContent.trim() === 'Agent'
+      const button = Array.from(document.querySelectorAll('.nav-item')).find((item) =>
+        item.textContent && item.textContent.includes('Skill')
       );
       if (button) button.click();
       window.setTimeout(resolve, 700);
     })
   `);
-  await captureSmokeScreenshot(screenshotDir, '03-agent-filter.png');
+  await captureSmokeScreenshot(screenshotDir, '04-skill-view.png');
   await mainWindow.webContents.executeJavaScript(`
     new Promise((resolve) => {
-      const button = Array.from(document.querySelectorAll('button')).find((item) =>
+      const button = Array.from(document.querySelectorAll('.nav-item')).find((item) =>
+        item.textContent && item.textContent.includes('Plugin')
+      );
+      if (button) button.click();
+      window.setTimeout(resolve, 700);
+    })
+  `);
+  await captureSmokeScreenshot(screenshotDir, '05-plugin-view.png');
+  await mainWindow.webContents.executeJavaScript(`
+    new Promise((resolve) => {
+      const button = Array.from(document.querySelectorAll('.nav-item')).find((item) =>
+        item.textContent && item.textContent.includes('Agent')
+      );
+      if (button) button.click();
+      window.setTimeout(resolve, 700);
+    })
+  `);
+  await captureSmokeScreenshot(screenshotDir, '06-agent-view.png');
+  await mainWindow.webContents.executeJavaScript(`
+    new Promise((resolve) => {
+      const button = Array.from(document.querySelectorAll('.nav-item')).find((item) =>
+        item.textContent && item.textContent.includes('其他文件')
+      );
+      if (button) button.click();
+      window.setTimeout(resolve, 700);
+    })
+  `);
+  await captureSmokeScreenshot(screenshotDir, '07-files-view.png');
+  await mainWindow.webContents.executeJavaScript(`
+    new Promise((resolve) => {
+      const button = Array.from(document.querySelectorAll('.nav-item')).find((item) =>
+        item.textContent && item.textContent.includes('未翻译')
+      );
+      if (button) button.click();
+      window.setTimeout(resolve, 700);
+    })
+  `);
+  await captureSmokeScreenshot(screenshotDir, '08-untranslated-view.png');
+  await mainWindow.webContents.executeJavaScript(`
+    new Promise((resolve) => {
+      const button = Array.from(document.querySelectorAll('.nav-item')).find((item) =>
+        item.textContent && item.textContent.includes('设置')
+      );
+      if (button) button.click();
+      window.setTimeout(resolve, 900);
+    })
+  `);
+  if (process.env.LUMINALINK_SMOKE_SET_PROVIDER) {
+    const provider = JSON.stringify(process.env.LUMINALINK_SMOKE_SET_PROVIDER);
+    await mainWindow.webContents.executeJavaScript(`
+      new Promise((resolve) => {
+        const select = document.querySelector('.settings-grid select');
+        if (select) {
+          select.value = ${provider};
+          select.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+        window.setTimeout(resolve, 1400);
+      })
+    `);
+  }
+  await captureSmokeScreenshot(screenshotDir, '09-settings.png');
+  await mainWindow.webContents.executeJavaScript(`
+    new Promise((resolve) => {
+      const button = Array.from(document.querySelectorAll('.nav-item')).find((item) =>
         item.textContent && item.textContent.includes('Codex 协助')
       );
       if (button) button.click();
       window.setTimeout(resolve, 900);
     })
   `);
-  await captureSmokeScreenshot(screenshotDir, '04-codex-assist.png');
+  await captureSmokeScreenshot(screenshotDir, '10-codex-assist.png');
   const finalLayout = await collectLayoutMetrics();
-  return { detail: detailLayout, final: finalLayout };
+  return { noNotice: noNoticeLayout, detail: detailLayout, final: finalLayout, readerOpened };
+}
+
+async function openReaderDuringSmoke(): Promise<boolean> {
+  if (!mainWindow) return false;
+  const before = BrowserWindow.getAllWindows().length;
+  await mainWindow.webContents.executeJavaScript(`
+    new Promise((resolve) => {
+      const button = document.querySelector('.reader-button');
+      if (button) button.click();
+      window.setTimeout(resolve, 500);
+    })
+  `);
+  const windows = BrowserWindow.getAllWindows();
+  const readerOpened = windows.length > before;
+  for (const window of windows) {
+    if (window !== mainWindow) {
+      window.close();
+    }
+  }
+  return readerOpened;
 }
 
 app.whenReady().then(async () => {
@@ -216,6 +330,16 @@ function registerIpc(): void {
   ipcMain.handle('lumina:pending-translations', () => listPendingTranslations());
   ipcMain.handle('lumina:agent-guide', () => getAgentGuide());
   ipcMain.handle('lumina:translate-asset', (_event, id: string) => translateAssetById(id));
+  ipcMain.handle('lumina:translate-asset-live', (event, id: string) =>
+    translateAssetById(id, {
+      stream: true,
+      onProgress: (payload) => {
+        if (!event.sender.isDestroyed()) {
+          event.sender.send('lumina:translation-progress', payload);
+        }
+      }
+    })
+  );
   ipcMain.handle('lumina:translate-pending', (_event, limit: number) => translatePending(limit));
   ipcMain.handle('lumina:doctor', () => doctor());
   ipcMain.handle('lumina:add-root', (_event, pathExpression: string, kind: ScanRootKind) =>
@@ -247,4 +371,110 @@ function registerIpc(): void {
     shell.showItemInFolder(target);
     return { ok: true, message: '已定位文件' };
   });
+  ipcMain.handle('lumina:open-reader', async (_event, payload: ReaderWindowPayload) => openReaderWindow(payload));
+}
+
+async function openReaderWindow(payload: ReaderWindowPayload): Promise<{ ok: boolean; message: string }> {
+  const reader = new BrowserWindow({
+    width: 980,
+    height: 760,
+    minWidth: 680,
+    minHeight: 480,
+    title: `${payload.title} - LuminaLink`,
+    backgroundColor: '#fbfdfc',
+    autoHideMenuBar: true,
+    parent: mainWindow,
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false
+    }
+  });
+  reader.setMenuBarVisibility(false);
+  await reader.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(buildReaderHtml(payload))}`);
+  return { ok: true, message: '已打开阅读窗口' };
+}
+
+function buildReaderHtml(payload: ReaderWindowPayload): string {
+  return `<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>${escapeHtml(payload.title)} - LuminaLink</title>
+  <style>
+    * { box-sizing: border-box; }
+    html, body { min-height: 100%; }
+    body {
+      margin: 0;
+      color: #172326;
+      background: #fbfdfc;
+      font-family: Inter, "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", system-ui, sans-serif;
+    }
+    header {
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      border-bottom: 1px solid #dfe8e6;
+      background: rgba(251, 253, 252, 0.96);
+      padding: 22px 32px 18px;
+      backdrop-filter: blur(10px);
+    }
+    h1 {
+      margin: 0;
+      font-size: 24px;
+      line-height: 1.25;
+    }
+    p {
+      margin: 6px 0 0;
+      color: #667579;
+      font-size: 13px;
+    }
+    main {
+      max-width: 920px;
+      margin: 0 auto;
+      padding: 28px 32px 48px;
+    }
+    article {
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      color: #253538;
+      font-size: 16px;
+      line-height: 1.82;
+    }
+    article.source {
+      border: 1px solid #dfe8e6;
+      border-radius: 8px;
+      background: #ffffff;
+      padding: 18px;
+      font-family: "Cascadia Mono", Consolas, monospace;
+      font-size: 13px;
+      line-height: 1.68;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>${escapeHtml(payload.title)}</h1>
+    <p>${escapeHtml(payload.subtitle || modeLabel(payload.mode))}</p>
+  </header>
+  <main>
+    <article class="${payload.mode === 'source' || payload.mode === 'metadata' ? 'source' : ''}">${escapeHtml(payload.content)}</article>
+  </main>
+</body>
+</html>`;
+}
+
+function modeLabel(mode: ReaderWindowPayload['mode']): string {
+  if (mode === 'translation') return '中文译文';
+  if (mode === 'source') return '原文';
+  return '元数据';
+}
+
+function escapeHtml(input: string): string {
+  return input
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }

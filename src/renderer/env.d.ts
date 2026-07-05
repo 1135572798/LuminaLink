@@ -9,7 +9,9 @@ declare global {
       pendingTranslations: () => Promise<any>;
       agentGuide: () => Promise<any>;
       translateAsset: (id: string) => Promise<any>;
+      translateAssetLive: (id: string) => Promise<any>;
       translatePending: (limit?: number) => Promise<any>;
+      onTranslationProgress: (listener: (event: any) => void) => () => void;
       doctor: () => Promise<any>;
       addRoot: (pathExpression: string, kind: string) => Promise<any>;
       setTranslator: (translator: any) => Promise<any>;
@@ -18,6 +20,7 @@ declare global {
       pickDirectory: () => Promise<string | undefined>;
       openPath: (target: string) => Promise<any>;
       showItem: (target: string) => Promise<any>;
+      openReader: (payload: any) => Promise<any>;
     };
   }
 }

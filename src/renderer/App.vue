@@ -14,7 +14,7 @@
           v-for="item in navItems"
           :key="item.key"
           :class="['nav-item', { active: activeView === item.key }]"
-          @click="activeView = item.key as ViewKey"
+          @click="setActiveView(item.key as ViewKey)"
         >
           <component :is="item.icon" :size="18" />
           <span>{{ item.label }}</span>
@@ -24,7 +24,7 @@
 
       <div class="sidebar-footer">
         <div class="provider-box">
-          <span>Provider 状态</span>
+          <span>Provider 配置</span>
           <p>
             <i :class="providerConfigured ? 'dot ok' : 'dot warn'"></i>
             {{ providerConfigured ? '已配置' : '未配置' }}
@@ -168,9 +168,14 @@
         </div>
       </section>
 
-      <section v-else class="content workspace">
+      <section
+        v-else
+        ref="workspaceRef"
+        class="content workspace"
+        :style="{ '--detail-width': `${detailPaneWidth}px` }"
+      >
         <div class="asset-pane">
-          <div class="tabs">
+          <div v-if="showFilterTabs" class="tabs">
             <button
               v-for="filterItem in filters"
               :key="filterItem.key"
@@ -180,6 +185,13 @@
               {{ filterItem.label }}
             </button>
           </div>
+          <div v-else-if="categoryHeader" class="category-header">
+            <div>
+              <h2>{{ categoryHeader.title }}</h2>
+              <p>{{ categoryHeader.description }}</p>
+            </div>
+            <strong>{{ visibleAssets.length }}</strong>
+          </div>
 
           <div v-if="activeView === 'translations'" class="queue-actions">
             <button class="secondary" @click="loadPending">刷新队列</button>
@@ -188,29 +200,84 @@
 
           <div v-if="activeView === 'settings'" class="settings-panel">
             <h2>设置</h2>
-            <p>扫描目录和 Provider 配置保存在本机 `%APPDATA%/LuminaLink/config.json`。</p>
+            <p>扫描目录和 Provider 配置会永久保存在本机 `%APPDATA%/LuminaLink/config.json`。</p>
             <div class="settings-grid">
               <label>
-                Provider
-                <select v-model="translatorForm.provider">
-                  <option value="noop">不翻译</option>
-                  <option value="openai">OpenAI</option>
-                  <option value="openai-compatible">OpenAI-compatible / 本地模型</option>
+                翻译服务
+                <select v-model="translatorForm.provider" @change="applyProviderPreset">
+                  <option
+                    v-for="preset in providerOptions"
+                    :key="preset.provider"
+                    :value="preset.provider"
+                  >
+                    {{ preset.label }}
+                  </option>
                 </select>
               </label>
               <label>
                 模型
-                <input v-model="translatorForm.model" placeholder="gpt-4.1-mini / qwen2.5:7b" />
+                <select
+                  v-if="selectedProviderPreset.modelOptions.length"
+                  v-model="translatorForm.model"
+                  :disabled="translatorForm.provider === 'noop'"
+                >
+                  <option
+                    v-for="model in selectedProviderPreset.modelOptions"
+                    :key="model"
+                    :value="model"
+                  >
+                    {{ model }}
+                  </option>
+                </select>
+                <input
+                  v-else
+                  v-model="translatorForm.model"
+                  :disabled="translatorForm.provider === 'noop'"
+                  placeholder="qwen2.5:7b"
+                />
               </label>
               <label>
                 Base URL
-                <input v-model="translatorForm.baseUrl" placeholder="http://localhost:11434/v1" />
+                <input
+                  v-model="translatorForm.baseUrl"
+                  :disabled="!selectedProviderPreset.baseUrlEditable || translatorForm.provider === 'noop'"
+                  :placeholder="selectedProviderPreset.baseUrl || 'http://localhost:11434/v1'"
+                />
               </label>
               <label>
-                API Key 来源
-                <input v-model="translatorForm.apiKeySource" placeholder="env:OPENAI_API_KEY" />
+                API Key
+                <span class="secret-field">
+                  <input
+                    v-model="translatorForm.apiKeySource"
+                    :type="showApiKey ? 'text' : 'password'"
+                    list="api-key-source-options"
+                    :disabled="translatorForm.provider === 'noop'"
+                    :placeholder="selectedProviderPreset.defaultApiKeySource || '可留空'"
+                    autocomplete="off"
+                    spellcheck="false"
+                  />
+                  <button
+                    type="button"
+                    class="icon-button"
+                    :disabled="translatorForm.provider === 'noop'"
+                    :title="showApiKey ? '隐藏 API Key' : '显示 API Key'"
+                    @click="showApiKey = !showApiKey"
+                  >
+                    <EyeOff v-if="showApiKey" :size="16" />
+                    <Eye v-else :size="16" />
+                  </button>
+                </span>
               </label>
-              <button class="primary" @click="saveTranslator">保存翻译配置</button>
+              <datalist id="api-key-source-options">
+                <option value="env:OPENAI_API_KEY" />
+                <option value="env:DEEPSEEK_API_KEY" />
+              </datalist>
+              <div class="settings-help">
+                <strong>{{ selectedProviderPreset.label }}</strong>
+                <span>{{ selectedProviderPreset.hint }}</span>
+              </div>
+              <button class="primary" @click="saveTranslator">立即保存</button>
+              <span class="save-state">{{ settingsSaveState }}</span>
             </div>
             <div class="doctor-list">
               <div v-for="check in doctorChecks" :key="check.name" :class="['doctor-row', check.status]">
@@ -245,7 +312,7 @@
                 <component :is="iconForType(asset.type)" :size="18" />
                 <span>
                   <strong>{{ asset.displayName }}</strong>
-                  <em>{{ asset.originalDescription || asset.sourcePath }}</em>
+                  <em>{{ previewText(asset.originalDescription || asset.sourcePath) }}</em>
                 </span>
               </span>
               <span>{{ typeLabel(asset.type) }}</span>
@@ -266,6 +333,13 @@
           </div>
         </div>
 
+        <div
+          class="pane-resizer"
+          role="separator"
+          aria-label="调整详情区域宽度"
+          @pointerdown="startDetailResize"
+        ></div>
+
         <aside class="detail-pane">
           <template v-if="selectedAsset">
             <div class="detail-head">
@@ -284,13 +358,21 @@
 
             <div class="detail-body">
               <article v-if="detailTab === 'zh'" class="markdown">
-                <p v-if="selectedAsset.translatedText || selectedAsset.chineseDescription">
-                  {{ selectedAsset.translatedText || selectedAsset.chineseDescription }}
+                <div v-if="liveTranslation?.assetId === selectedAsset.id && liveTranslation.phase === 'delta'" class="live-note">
+                  <RefreshCw :size="14" class="spin" />
+                  正在生成译文，内容会实时写入这里。
+                </div>
+                <div v-if="selectedAsset.translationStatus === 'failed' && selectedAsset.translationError" class="error-note">
+                  <strong>上次翻译失败</strong>
+                  <p>{{ selectedAsset.translationError }}</p>
+                </div>
+                <p v-if="selectedZhText">
+                  {{ selectedZhText }}
                 </p>
                 <p v-else class="empty">暂无中文译文。可以点击“翻译此项”。</p>
               </article>
               <article v-else-if="detailTab === 'source'" class="markdown source">
-                <pre>{{ selectedAsset.sourceText || selectedAsset.originalDescription }}</pre>
+                <pre>{{ selectedSourceText }}</pre>
               </article>
               <article v-else class="meta-list">
                 <label>源路径</label>
@@ -313,8 +395,11 @@
               <button class="secondary" @click="openPath(selectedAsset.sourcePath)">
                 <FileText :size="16" /> 打开文件
               </button>
+              <button class="secondary reader-button" @click="openReaderWindow">
+                <BookOpen :size="16" /> 阅读窗口
+              </button>
               <button class="primary" :disabled="busy" @click="translateSelected">
-                <Languages :size="16" /> 翻译此项
+                <Languages :size="16" /> {{ busy ? '翻译中' : '翻译此项' }}
               </button>
             </div>
           </template>
@@ -335,12 +420,15 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue';
 import {
+  BookOpen,
   Bot,
   Clock3,
   Copy,
   Database,
+  Eye,
+  EyeOff,
   FilePlus2,
   FileText,
   FolderOpen,
@@ -360,14 +448,36 @@ import {
   TriangleAlert
 } from 'lucide-vue-next';
 import type { Asset, DashboardSummary, DoctorCheck } from '../shared/types';
-import type { AgentGuideInfo, ScanSummary } from '../shared/types';
+import type { AgentGuideInfo, ReaderWindowPayload, ScanSummary, TranslationProgressEvent, TranslatorConfig } from '../shared/types';
+import { getTranslatorPreset, translatorProviderPresets } from '../shared/provider-presets';
+import { toPreviewText, toReadableText } from '../shared/readable-text';
 
-type ViewKey = 'overview' | 'library' | 'translations' | 'agents' | 'files' | 'migration' | 'settings' | 'assistant';
-type DetailedAsset = Asset & { sourceText?: string; translatedText?: string };
+type ViewKey =
+  | 'overview'
+  | 'library'
+  | 'skills'
+  | 'plugins'
+  | 'agents'
+  | 'files'
+  | 'translations'
+  | 'migration'
+  | 'settings'
+  | 'assistant';
+type DetailedAsset = Asset & { sourceText?: string; translatedText?: string; translationError?: string };
 type NoticeKind = 'success' | 'warning' | 'error' | 'info';
+type LiveTranslationState = {
+  assetId: string;
+  phase: TranslationProgressEvent['phase'];
+  text: string;
+  message?: string;
+};
 
 const fallbackDashboard: DashboardSummary = {
   assetsTotal: 0,
+  skillTotal: 0,
+  pluginTotal: 0,
+  agentTotal: 0,
+  fileTotal: 0,
   translatedTotal: 0,
   pendingTranslationTotal: 0,
   staleTranslationTotal: 0,
@@ -384,16 +494,26 @@ const statusMessage = ref('正在初始化 LuminaLink...');
 const providerConfigured = ref(false);
 const assets = ref<Asset[]>([]);
 const selectedAsset = ref<DetailedAsset | undefined>();
+const workspaceRef = ref<HTMLElement | undefined>();
 const notice = ref<{ kind: NoticeKind; title: string; detail: string } | undefined>();
 const lastScan = ref<ScanSummary | undefined>();
 const agentGuide = ref<AgentGuideInfo | undefined>();
 const promptCopied = ref(false);
 const detailTab = ref<'zh' | 'source' | 'meta'>('zh');
 const doctorChecks = ref<DoctorCheck[]>([]);
-const translatorForm = reactive({
+const detailPaneWidth = ref(readSavedDetailPaneWidth());
+const liveTranslation = ref<LiveTranslationState | undefined>();
+const showApiKey = ref(false);
+const providerOptions = translatorProviderPresets;
+const settingsSaveState = ref('配置会自动保存到本机');
+const settingsHydrated = ref(false);
+let settingsSaveTimer: ReturnType<typeof window.setTimeout> | undefined;
+let stopTranslationProgress: (() => void) | undefined;
+const translatorForm = reactive<TranslatorConfig>({
   provider: 'noop',
   model: '',
   baseUrl: '',
+  targetLang: 'zh-CN',
   apiKeySource: ''
 });
 const dashboard = reactive<DashboardSummary>({ ...fallbackDashboard });
@@ -425,15 +545,61 @@ const filters = [
 const navItems = computed(() => [
   { key: 'overview', label: '总览', icon: LayoutDashboard },
   { key: 'library', label: '资产库', icon: Library, count: dashboard.assetsTotal },
-  { key: 'translations', label: '翻译队列', icon: Languages, count: dashboard.pendingTranslationTotal },
-  { key: 'agents', label: '项目 Agent', icon: Bot },
-  { key: 'files', label: '其他文件', icon: FileText },
+  { key: 'skills', label: 'Skill', icon: Sparkles, count: dashboard.skillTotal },
+  { key: 'plugins', label: 'Plugin', icon: Package, count: dashboard.pluginTotal },
+  { key: 'agents', label: 'Agent', icon: Bot, count: dashboard.agentTotal },
+  { key: 'files', label: '其他文件', icon: FileText, count: dashboard.fileTotal },
+  { key: 'translations', label: '未翻译', icon: Languages, count: dashboard.pendingTranslationTotal },
   { key: 'assistant', label: 'Codex 协助', icon: Bot },
   { key: 'migration', label: '迁移备份', icon: Package },
   { key: 'settings', label: '设置', icon: Settings }
 ]);
 
+const selectedProviderPreset = computed(() => getTranslatorPreset(translatorForm.provider));
+
+const showFilterTabs = computed(() => activeView.value === 'library');
+
+const categoryHeader = computed(() => {
+  if (activeView.value === 'skills') {
+    return {
+      title: 'Skill',
+      description: '只显示本机扫描到的 Skill。'
+    };
+  }
+  if (activeView.value === 'plugins') {
+    return {
+      title: 'Plugin',
+      description: '只显示本机扫描到的插件资产。'
+    };
+  }
+  if (activeView.value === 'agents') {
+    return {
+      title: 'Agent',
+      description: '只显示本机扫描到的 Agent 指令文件。'
+    };
+  }
+  if (activeView.value === 'files') {
+    return {
+      title: '其他文件',
+      description: '只显示手动添加或项目目录中识别到的文档文件。'
+    };
+  }
+  if (activeView.value === 'translations') {
+    return {
+      title: '未翻译',
+      description: '只显示未翻译、已过期或翻译失败的资产。'
+    };
+  }
+  return undefined;
+});
+
 const visibleAssets = computed(() => {
+  if (activeView.value === 'skills') {
+    return assets.value.filter((asset) => asset.type === 'skill');
+  }
+  if (activeView.value === 'plugins') {
+    return assets.value.filter((asset) => asset.type === 'plugin');
+  }
   if (activeView.value === 'translations') {
     return assets.value.filter((asset) => ['none', 'stale', 'failed'].includes(asset.translationStatus));
   }
@@ -448,10 +614,36 @@ const visibleAssets = computed(() => {
   return assets.value;
 });
 
+const selectedZhText = computed(() => {
+  if (!selectedAsset.value) return '';
+  if (liveTranslation.value?.assetId === selectedAsset.value.id && liveTranslation.value.text) {
+    return toReadableText(liveTranslation.value.text);
+  }
+  return toReadableText(selectedAsset.value.translatedText || selectedAsset.value.chineseDescription);
+});
+
+const selectedSourceText = computed(() => {
+  if (!selectedAsset.value) return '';
+  return toReadableText(selectedAsset.value.sourceText || selectedAsset.value.originalDescription);
+});
+
 onMounted(async () => {
+  stopTranslationProgress = window.lumina?.onTranslationProgress?.(handleTranslationProgress);
   await refreshAll();
   await loadAgentGuide();
 });
+
+onUnmounted(() => {
+  stopTranslationProgress?.();
+});
+
+watch(
+  () => [translatorForm.provider, translatorForm.model, translatorForm.baseUrl, translatorForm.apiKeySource],
+  () => {
+    if (!settingsHydrated.value) return;
+    scheduleTranslatorAutoSave();
+  }
+);
 
 async function refreshAll(): Promise<void> {
   try {
@@ -467,7 +659,7 @@ async function refreshAll(): Promise<void> {
 async function loadStatus(): Promise<void> {
   const result = await window.lumina?.status();
   providerConfigured.value = Boolean(result?.data?.translator?.configured);
-  translatorForm.provider = result?.data?.translator?.provider ?? 'noop';
+  hydrateTranslatorForm(result?.data?.translator as TranslatorConfig | undefined);
 }
 
 async function refreshDashboard(): Promise<void> {
@@ -513,21 +705,72 @@ function setFilter(next: string): void {
   void refreshAssets();
 }
 
+function setActiveView(next: ViewKey): void {
+  activeView.value = next;
+  if (next === 'skills') {
+    filter.value = 'skill';
+    void refreshAssets();
+    return;
+  }
+  if (next === 'plugins') {
+    filter.value = 'plugin';
+    void refreshAssets();
+    return;
+  }
+  if (next === 'agents') {
+    filter.value = 'agent_file';
+    void refreshAssets();
+    return;
+  }
+  if (next === 'files') {
+    filter.value = 'all';
+    void refreshAssets();
+    return;
+  }
+  if (next === 'translations') {
+    filter.value = 'untranslated';
+    void refreshAssets();
+    return;
+  }
+  if (next === 'library') {
+    filter.value = 'all';
+    void refreshAssets();
+  }
+}
+
 async function selectAsset(id: string): Promise<void> {
   activeView.value = activeView.value === 'overview' ? 'library' : activeView.value;
   const result = (await window.lumina?.asset(id)) as DetailedAsset | undefined;
   selectedAsset.value = result;
   detailTab.value = result?.translatedText || result?.chineseDescription ? 'zh' : 'source';
+  if (liveTranslation.value?.assetId !== id) {
+    liveTranslation.value = undefined;
+  }
 }
 
 async function translateSelected(): Promise<void> {
   if (!selectedAsset.value) return;
+  const assetId = selectedAsset.value.id;
   busy.value = true;
   statusMessage.value = `正在翻译：${selectedAsset.value.displayName}`;
+  detailTab.value = 'zh';
+  liveTranslation.value = {
+    assetId,
+    phase: 'started',
+    text: '',
+    message: '正在连接翻译 Provider...'
+  };
   try {
-    const result = await window.lumina?.translateAsset(selectedAsset.value.id);
+    const result = window.lumina?.translateAssetLive
+      ? await window.lumina.translateAssetLive(assetId)
+      : await window.lumina?.translateAsset(assetId);
     statusMessage.value = result?.message ?? '翻译任务已结束';
-    await selectAsset(selectedAsset.value.id);
+    if (result?.ok) {
+      showNotice('success', '翻译完成', result.message);
+    } else {
+      showNotice('error', '翻译失败', result?.message ?? '客户端 IPC 未返回翻译结果');
+    }
+    await selectAsset(assetId);
     await refreshAll();
   } finally {
     busy.value = false;
@@ -540,6 +783,13 @@ async function translatePending(): Promise<void> {
   try {
     const result = await window.lumina?.translatePending(10);
     statusMessage.value = result?.message ?? '翻译队列已处理';
+    const results = (result?.data ?? []) as Array<{ ok: boolean; message: string }>;
+    const failed = results.filter((item) => !item.ok);
+    if (failed.length) {
+      showNotice('error', '翻译队列有失败项', `失败 ${failed.length} 个。第一条原因：${failed[0]?.message}`);
+    } else {
+      showNotice('success', '翻译队列已处理', result?.message ?? '翻译队列已处理');
+    }
     await refreshAll();
   } finally {
     busy.value = false;
@@ -583,6 +833,47 @@ async function runDoctor(): Promise<void> {
 }
 
 async function saveTranslator(): Promise<void> {
+  await persistTranslatorConfig('manual');
+}
+
+function hydrateTranslatorForm(translator?: TranslatorConfig): void {
+  settingsHydrated.value = false;
+  const next = translator ?? { provider: 'noop', targetLang: 'zh-CN' as const };
+  const preset = getTranslatorPreset(next.provider);
+  translatorForm.provider = next.provider;
+  translatorForm.model = next.model || preset.defaultModel || '';
+  translatorForm.baseUrl = next.baseUrl || preset.baseUrl || '';
+  translatorForm.apiKeySource = next.apiKeySource ?? preset.defaultApiKeySource ?? '';
+  translatorForm.targetLang = 'zh-CN';
+  window.setTimeout(() => {
+    settingsHydrated.value = true;
+    settingsSaveState.value = '已读取本机配置';
+  }, 0);
+}
+
+function applyProviderPreset(): void {
+  const preset = getTranslatorPreset(translatorForm.provider);
+  translatorForm.model = preset.defaultModel || '';
+  translatorForm.baseUrl = preset.baseUrl || '';
+  translatorForm.apiKeySource = preset.defaultApiKeySource || '';
+}
+
+function scheduleTranslatorAutoSave(): void {
+  if (settingsSaveTimer) {
+    window.clearTimeout(settingsSaveTimer);
+  }
+  settingsSaveState.value = '正在等待自动保存...';
+  settingsSaveTimer = window.setTimeout(() => {
+    void persistTranslatorConfig('auto');
+  }, 650);
+}
+
+async function persistTranslatorConfig(mode: 'auto' | 'manual'): Promise<void> {
+  if (settingsSaveTimer) {
+    window.clearTimeout(settingsSaveTimer);
+    settingsSaveTimer = undefined;
+  }
+  settingsSaveState.value = '正在保存...';
   const result = await window.lumina?.setTranslator({
     provider: translatorForm.provider,
     model: translatorForm.model || undefined,
@@ -591,6 +882,7 @@ async function saveTranslator(): Promise<void> {
     apiKeySource: translatorForm.apiKeySource || undefined
   });
   statusMessage.value = result?.message ?? '翻译配置已保存';
+  settingsSaveState.value = mode === 'auto' ? '已自动保存到本机' : '已保存到本机';
   await loadStatus();
   await loadAgentGuide();
 }
@@ -622,6 +914,107 @@ async function openPath(target: string): Promise<void> {
 
 async function showItem(target: string): Promise<void> {
   await window.lumina?.showItem(target);
+}
+
+async function openReaderWindow(): Promise<void> {
+  if (!selectedAsset.value) return;
+  const payload = buildReaderPayload(selectedAsset.value);
+  const result = await window.lumina?.openReader(payload);
+  statusMessage.value = result?.message ?? '阅读窗口已打开';
+}
+
+function buildReaderPayload(asset: DetailedAsset): ReaderWindowPayload {
+  if (detailTab.value === 'source') {
+    return {
+      title: asset.displayName,
+      subtitle: `${typeLabel(asset.type)} · 原文 · ${asset.sourcePath}`,
+      mode: 'source',
+      content: selectedSourceText.value
+    };
+  }
+  if (detailTab.value === 'meta') {
+    return {
+      title: asset.displayName,
+      subtitle: `${typeLabel(asset.type)} · 元数据`,
+      mode: 'metadata',
+      content: [
+        `源路径: ${asset.sourcePath}`,
+        `内容 Hash: ${asset.contentHash}`,
+        `分类: ${asset.categories.join(' / ') || '未分类'}`,
+        `标签: ${asset.tags.join(' / ') || '无'}`,
+        `风险: ${asset.riskLevel}`
+      ].join('\n')
+    };
+  }
+  return {
+    title: asset.displayName,
+    subtitle: `${typeLabel(asset.type)} · 中文译文`,
+    mode: 'translation',
+    content: selectedZhText.value || '暂无中文译文。'
+  };
+}
+
+function handleTranslationProgress(event: TranslationProgressEvent): void {
+  if (!selectedAsset.value || selectedAsset.value.id !== event.assetId) return;
+  liveTranslation.value = {
+    assetId: event.assetId,
+    phase: event.phase,
+    text: toReadableText(event.text ?? liveTranslation.value?.text ?? ''),
+    message: event.message
+  };
+  if (event.phase === 'delta') {
+    detailTab.value = 'zh';
+    statusMessage.value = event.message ?? '正在生成译文...';
+  }
+  if (event.phase === 'complete' || event.phase === 'cached') {
+    selectedAsset.value.translatedText = toReadableText(event.text);
+    selectedAsset.value.translationStatus = 'translated';
+  }
+  if (event.phase === 'failed') {
+    statusMessage.value = event.message ?? '翻译失败';
+  }
+}
+
+function previewText(input: string): string {
+  return toPreviewText(input, 150);
+}
+
+function readSavedDetailPaneWidth(): number {
+  const raw = window.localStorage.getItem('luminalink.detailPaneWidth');
+  const parsed = raw ? Number(raw) : 390;
+  return Number.isFinite(parsed) ? clamp(parsed, 320, 760) : 390;
+}
+
+function startDetailResize(event: PointerEvent): void {
+  event.preventDefault();
+  const workspace = workspaceRef.value;
+  if (!workspace) return;
+  const pointerId = event.pointerId;
+  (event.currentTarget as HTMLElement).setPointerCapture(pointerId);
+  document.body.classList.add('resizing-detail-pane');
+
+  const resize = (clientX: number) => {
+    const rect = workspace.getBoundingClientRect();
+    const maxWidth = Math.max(320, Math.min(860, rect.width - 520));
+    const nextWidth = clamp(rect.right - clientX, 320, maxWidth);
+    detailPaneWidth.value = nextWidth;
+    window.localStorage.setItem('luminalink.detailPaneWidth', String(Math.round(nextWidth)));
+  };
+
+  const onPointerMove = (moveEvent: PointerEvent) => resize(moveEvent.clientX);
+  const onPointerUp = () => {
+    document.body.classList.remove('resizing-detail-pane');
+    window.removeEventListener('pointermove', onPointerMove);
+    window.removeEventListener('pointerup', onPointerUp);
+  };
+
+  resize(event.clientX);
+  window.addEventListener('pointermove', onPointerMove);
+  window.addEventListener('pointerup', onPointerUp, { once: true });
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max);
 }
 
 function iconForType(type: Asset['type']) {

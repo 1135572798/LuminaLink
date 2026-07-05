@@ -6,10 +6,13 @@ import type {
   DashboardSummary,
   DoctorReport,
   OperationResult,
+  TranslationProgressEvent,
   ScanRootKind,
   ScanSummary,
   TranslatorConfig
 } from '../shared/types.js';
+import { withTranslatorDefaults } from '../shared/provider-presets.js';
+import { toReadableText } from '../shared/readable-text.js';
 import { addScanRoot, expandScanRoots, loadConfig, saveConfig } from './config.js';
 import { openIndexStore, openTranslationStore } from './database.js';
 import { dashboardSummary, getAsset, listAssets, updateAssetTranslation } from './asset-store.js';
@@ -17,8 +20,19 @@ import { ensureDir, makeId, pathExists } from './fs-utils.js';
 import { getLuminaPaths } from './paths.js';
 import { addGenericFile, scanAll } from './scanner.js';
 import { selectAll } from './sql.js';
-import { isProviderConfigured, getTranslation, upsertTranslation } from './translation-store.js';
-import { translateText } from './translator.js';
+import {
+  getTranslationJobError,
+  isProviderConfigured,
+  getTranslation,
+  upsertTranslation,
+  upsertTranslationJob
+} from './translation-store.js';
+import { probeTranslator, translateText, translateTextStream } from './translator.js';
+
+interface TranslateAssetOptions {
+  stream?: boolean;
+  onProgress?: (event: TranslationProgressEvent) => void;
+}
 
 export async function getStatus(): Promise<OperationResult> {
   const config = await loadConfig();
@@ -32,7 +46,7 @@ export async function getStatus(): Promise<OperationResult> {
       paths,
       scanRoots: expandScanRoots(config),
       translator: {
-        provider: config.translator.provider,
+        ...withTranslatorDefaults(config.translator),
         configured: isProviderConfigured(config.translator)
       },
       databases: {
@@ -68,7 +82,7 @@ export async function getAgentGuide(): Promise<OperationResult<AgentGuideInfo>> 
       translator: {
         provider: config.translator.provider,
         configured: isProviderConfigured(config.translator),
-        apiKeySource: config.translator.apiKeySource
+        apiKeySource: redactSecretSource(config.translator.apiKeySource)
       }
     }
   };
@@ -95,11 +109,11 @@ export async function addRoot(pathExpression: string, kind: ScanRootKind, label?
 
 export async function setTranslatorConfig(translator: TranslatorConfig): Promise<OperationResult> {
   const config = await loadConfig();
-  config.translator = translator;
+  config.translator = withTranslatorDefaults(translator);
   await saveConfig(config);
   return {
     ok: true,
-    message: `翻译 Provider 已设置为 ${translator.provider}`
+    message: `翻译 Provider 已设置为 ${config.translator.provider}`
   };
 }
 
@@ -114,7 +128,9 @@ export async function searchAssets(query = '', filter = 'all'): Promise<Asset[]>
   return assets;
 }
 
-export async function showAsset(id: string): Promise<(Asset & { sourceText: string; translatedText: string }) | undefined> {
+export async function showAsset(
+  id: string
+): Promise<(Asset & { sourceText: string; translatedText: string; translationError?: string }) | undefined> {
   const indexStore = await openIndexStore();
   const translationStore = await openTranslationStore();
   const asset = getAsset(indexStore.db, id);
@@ -125,12 +141,16 @@ export async function showAsset(id: string): Promise<(Asset & { sourceText: stri
   }
   const sourceText = await fs.readFile(asset.sourcePath, 'utf8');
   const cached = getTranslation(translationStore.db, asset.contentHash, 'zh-CN', 'full');
+  const translationError = getTranslationJobError(translationStore.db, asset.id);
   indexStore.close();
   translationStore.close();
   return {
     ...asset,
-    sourceText,
-    translatedText: cached?.translatedText ?? asset.chineseDescription
+    originalDescription: toReadableText(asset.originalDescription),
+    chineseDescription: toReadableText(asset.chineseDescription),
+    sourceText: toReadableText(sourceText),
+    translatedText: toReadableText(cached?.translatedText ?? asset.chineseDescription),
+    translationError
   };
 }
 
@@ -145,7 +165,7 @@ export async function listPendingTranslations(): Promise<Asset[]> {
   return searchAssets('', 'untranslated');
 }
 
-export async function translateAssetById(id: string): Promise<OperationResult> {
+export async function translateAssetById(id: string, options: TranslateAssetOptions = {}): Promise<OperationResult> {
   const config = await loadConfig();
   if (!isProviderConfigured(config.translator)) {
     return {
@@ -165,44 +185,99 @@ export async function translateAssetById(id: string): Promise<OperationResult> {
 
   const cached = getTranslation(translationStore.db, asset.contentHash, config.translator.targetLang, 'full');
   if (cached) {
-    updateAssetTranslation(indexStore.db, asset.id, cached.translatedText.slice(0, 1200), 'translated');
+    const cachedText = toReadableText(cached.translatedText);
+    options.onProgress?.({
+      assetId: asset.id,
+      phase: 'cached',
+      text: cachedText,
+      message: '已复用翻译缓存'
+    });
+    upsertTranslationJob(translationStore.db, {
+      assetId: asset.id,
+      sourceHash: asset.contentHash,
+      status: 'cached'
+    });
+    updateAssetTranslation(indexStore.db, asset.id, cachedText.slice(0, 1200), 'translated');
     await indexStore.save();
+    await translationStore.save();
     indexStore.close();
     translationStore.close();
-    return { ok: true, message: '已复用翻译缓存', data: cached };
+    return { ok: true, message: '已复用翻译缓存', data: { ...cached, translatedText: cachedText } };
   }
 
-  const sourceText = await fs.readFile(asset.sourcePath, 'utf8');
+  const sourceText = toReadableText(await fs.readFile(asset.sourcePath, 'utf8'));
   try {
-    const result = await translateText(config.translator, {
+    options.onProgress?.({
+      assetId: asset.id,
+      phase: 'started',
+      text: '',
+      message: '正在连接翻译 Provider...'
+    });
+    const input = {
       sourceText: sourceText.slice(0, 24000),
       sourceLang: 'auto',
       targetLang: config.translator.targetLang,
       scope: 'full'
-    });
+    };
+    const result = options.stream
+      ? await translateTextStream(config.translator, input, (text, delta) => {
+          options.onProgress?.({
+            assetId: asset.id,
+            phase: 'delta',
+            text: toReadableText(text),
+            delta,
+            message: '正在生成译文...'
+          });
+        })
+      : await translateText(config.translator, input);
+    const translatedText = toReadableText(result.translatedText);
     const record = upsertTranslation(translationStore.db, {
       sourceHash: asset.contentHash,
       sourceLang: 'auto',
       targetLang: config.translator.targetLang,
       scope: 'full',
       sourceText,
-      translatedText: result.translatedText,
+      translatedText,
       provider: result.provider
     });
-    updateAssetTranslation(indexStore.db, asset.id, record.translatedText.slice(0, 1200), 'translated');
+    upsertTranslationJob(translationStore.db, {
+      assetId: asset.id,
+      sourceHash: asset.contentHash,
+      status: 'translated'
+    });
+    updateAssetTranslation(indexStore.db, asset.id, translatedText.slice(0, 1200), 'translated');
     await indexStore.save();
     await translationStore.save();
     indexStore.close();
     translationStore.close();
-    return { ok: true, message: '翻译完成', data: record };
+    options.onProgress?.({
+      assetId: asset.id,
+      phase: 'complete',
+      text: translatedText,
+      message: '翻译完成'
+    });
+    return { ok: true, message: '翻译完成', data: { ...record, translatedText } };
   } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    options.onProgress?.({
+      assetId: asset.id,
+      phase: 'failed',
+      message
+    });
+    upsertTranslationJob(translationStore.db, {
+      assetId: asset.id,
+      sourceHash: asset.contentHash,
+      status: 'failed',
+      error: message
+    });
     updateAssetTranslation(indexStore.db, asset.id, asset.chineseDescription, 'failed');
     await indexStore.save();
+    await translationStore.save();
     indexStore.close();
     translationStore.close();
     return {
       ok: false,
-      message: error instanceof Error ? error.message : String(error)
+      message
     };
   }
 }
@@ -291,7 +366,7 @@ export async function importAgentTranslationResult(inputFile: string): Promise<O
       targetLang: 'zh-CN',
       scope: 'full',
       sourceText,
-      translatedText: item.translatedText.trim(),
+      translatedText: toReadableText(item.translatedText),
       provider: 'agent-cli'
     });
     updateAssetTranslation(indexStore.db, asset.id, record.translatedText.slice(0, 1200), 'translated');
@@ -379,6 +454,7 @@ export async function doctor(): Promise<DoctorReport> {
   const paths = getLuminaPaths();
   const config = await loadConfig();
   const roots = expandScanRoots(config);
+  const providerProbe = await probeTranslator(config.translator);
   const checks = [
     {
       name: '配置文件',
@@ -392,10 +468,8 @@ export async function doctor(): Promise<DoctorReport> {
     },
     {
       name: '翻译 Provider',
-      status: isProviderConfigured(config.translator) ? 'pass' : 'warn',
-      detail: isProviderConfigured(config.translator)
-        ? `${config.translator.provider} 已配置`
-        : '未配置 Provider，仍可扫描和查看原文'
+      status: providerProbe.status,
+      detail: providerProbe.detail
     },
     {
       name: '扫描目录',
@@ -475,7 +549,7 @@ ${rootLines || '- No scan roots configured'}
 
 - Provider: ${config.translator.provider}
 - Configured: ${isProviderConfigured(config.translator) ? 'yes' : 'no'}
-- API key source: ${config.translator.apiKeySource ?? 'not set'}
+- API key source: ${redactSecretSource(config.translator.apiKeySource) ?? 'not set'}
 
 Important: scanning assets does not require a translation provider. Provider
 configuration only affects translation.
@@ -501,10 +575,17 @@ configuration only affects translation.
    powershell -ExecutionPolicy Bypass -File "${paths.agentHelperPath}" set-openai-env
    \`\`\`
 
-4. Ask the user to open LuminaLink and click "扫描资产". After scanning, report
+4. If the user wants DeepSeek translation and has configured DEEPSEEK_API_KEY as
+   a user or machine environment variable:
+
+   \`\`\`powershell
+   powershell -ExecutionPolicy Bypass -File "${paths.agentHelperPath}" set-deepseek-env
+   \`\`\`
+
+5. Ask the user to open LuminaLink and click "扫描资产". After scanning, report
    the scan result shown in the app.
 
-5. If the app has no assets after scanning, check whether these directories
+6. If the app has no assets after scanning, check whether these directories
    exist on the user's computer:
 
    \`\`\`text
@@ -549,7 +630,7 @@ LuminaLink. It still writes translations into the normal local cache.
 function buildAgentHelperScript(): string {
   return `param(
   [Parameter(Position = 0)]
-  [ValidateSet('status', 'reset-default-roots', 'set-openai-env')]
+  [ValidateSet('status', 'reset-default-roots', 'set-openai-env', 'set-deepseek-env')]
   [string]$Action = 'status'
 )
 
@@ -595,6 +676,24 @@ function Test-EnvKey($name) {
   )
 }
 
+function Redact-SecretSource($source) {
+  if (-not $source) { return $null }
+  if ($source -like 'env:*') { return $source }
+  if ($source.Length -le 8) { return 'direct:***' }
+  return ('direct:{0}...{1}' -f $source.Substring(0, 4), $source.Substring($source.Length - 4))
+}
+
+function Redact-Translator($translator) {
+  if (-not $translator) { return $null }
+  return [ordered]@{
+    provider = $translator.provider
+    model = $translator.model
+    baseUrl = $translator.baseUrl
+    targetLang = $translator.targetLang
+    apiKeySource = Redact-SecretSource $translator.apiKeySource
+  }
+}
+
 if ($Action -eq 'reset-default-roots') {
   $config = Read-Config
   $defaults = Get-DefaultConfig
@@ -608,8 +707,21 @@ if ($Action -eq 'set-openai-env') {
   $config.translator = [ordered]@{
     provider = 'openai'
     model = 'gpt-4.1-mini'
+    baseUrl = 'https://api.openai.com/v1'
     targetLang = 'zh-CN'
     apiKeySource = 'env:OPENAI_API_KEY'
+  }
+  Write-Config $config
+}
+
+if ($Action -eq 'set-deepseek-env') {
+  $config = Read-Config
+  $config.translator = [ordered]@{
+    provider = 'deepseek'
+    model = 'deepseek-v4-flash'
+    baseUrl = 'https://api.deepseek.com'
+    targetLang = 'zh-CN'
+    apiKeySource = 'env:DEEPSEEK_API_KEY'
   }
   Write-Config $config
 }
@@ -624,9 +736,17 @@ $config = Read-Config
   indexExists = Test-Path -LiteralPath (Join-Path $localDataDir 'luminalink.sqlite')
   translationDbExists = Test-Path -LiteralPath (Join-Path $localDataDir 'translation-cache.sqlite')
   scanRoots = $config.scanRoots
-  translator = $config.translator
+  translator = Redact-Translator $config.translator
   openaiApiKeyVisibleToUserOrMachine = Test-EnvKey 'OPENAI_API_KEY'
+  deepseekApiKeyVisibleToUserOrMachine = Test-EnvKey 'DEEPSEEK_API_KEY'
   note = 'Scanning is done in the LuminaLink app with the Scan Assets button. Translation requires a configured provider.'
 } | ConvertTo-Json -Depth 12
 `;
+}
+
+function redactSecretSource(source?: string): string | undefined {
+  if (!source) return undefined;
+  if (source.startsWith('env:')) return source;
+  if (source.length <= 8) return 'direct:***';
+  return `direct:${source.slice(0, 4)}...${source.slice(-4)}`;
 }

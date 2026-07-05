@@ -126,7 +126,11 @@ export async function upsertAsset(db: Database, input: UpsertAssetInput): Promis
        tags_json = excluded.tags_json,
        last_modified_at = excluded.last_modified_at,
        updated_at = excluded.updated_at,
-       translation_status = excluded.translation_status,
+       translation_status = case
+         when assets.content_hash = excluded.content_hash then assets.translation_status
+         when assets.translation_status = 'translated' then 'stale'
+         else excluded.translation_status
+       end,
        risk_level = excluded.risk_level`,
     [
       assetId,
@@ -234,8 +238,14 @@ export function dashboardSummary(db: Database): DashboardSummary {
     Number(selectOne<{ count: number }>(db, sql, params)?.count ?? 0);
   return {
     assetsTotal: count('select count(*) as count from assets'),
+    skillTotal: count("select count(*) as count from assets where type = 'skill'"),
+    pluginTotal: count("select count(*) as count from assets where type = 'plugin'"),
+    agentTotal: count("select count(*) as count from assets where type = 'agent_file'"),
+    fileTotal: count(
+      "select count(*) as count from assets where type in ('generic_file', 'markdown_doc', 'text_doc', 'project_doc')"
+    ),
     translatedTotal: count("select count(*) as count from assets where translation_status = 'translated'"),
-    pendingTranslationTotal: count("select count(*) as count from assets where translation_status = 'none'"),
+    pendingTranslationTotal: count("select count(*) as count from assets where translation_status in ('none', 'stale', 'failed')"),
     staleTranslationTotal: count("select count(*) as count from assets where translation_status = 'stale'"),
     failedTotal: count("select count(*) as count from assets where translation_status = 'failed'"),
     riskTotal: count("select count(*) as count from assets where risk_level != 'none'"),

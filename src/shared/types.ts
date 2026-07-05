@@ -79,6 +79,10 @@ export interface ScanSummary {
 
 export interface DashboardSummary {
   assetsTotal: number;
+  skillTotal: number;
+  pluginTotal: number;
+  agentTotal: number;
+  fileTotal: number;
   translatedTotal: number;
   pendingTranslationTotal: number;
   staleTranslationTotal: number;
@@ -97,7 +101,7 @@ export interface AppConfig {
 }
 
 export interface TranslatorConfig {
-  provider: 'noop' | 'openai' | 'openai-compatible';
+  provider: 'noop' | 'openai' | 'deepseek' | 'openai-compatible';
   model?: string;
   baseUrl?: string;
   targetLang: 'zh-CN';
@@ -121,6 +125,21 @@ export interface OperationResult<T = unknown> {
   ok: boolean;
   message: string;
   data?: T;
+}
+
+export interface ReaderWindowPayload {
+  title: string;
+  subtitle?: string;
+  mode: 'translation' | 'source' | 'metadata';
+  content: string;
+}
+
+export interface TranslationProgressEvent {
+  assetId: string;
+  phase: 'started' | 'delta' | 'complete' | 'failed' | 'cached';
+  text?: string;
+  delta?: string;
+  message?: string;
 }
 
 export interface AgentGuideInfo {
