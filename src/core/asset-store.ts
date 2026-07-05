@@ -120,15 +120,17 @@ export async function upsertAsset(db: Database, input: UpsertAssetInput): Promis
        original_description = excluded.original_description,
        chinese_description = case
          when assets.content_hash = excluded.content_hash then assets.chinese_description
-         else ''
+         when assets.translation_status in ('translated', 'stale') then assets.chinese_description
+         else excluded.chinese_description
        end,
        content_hash = excluded.content_hash,
        tags_json = excluded.tags_json,
        last_modified_at = excluded.last_modified_at,
        updated_at = excluded.updated_at,
-       translation_status = case
+      translation_status = case
          when assets.content_hash = excluded.content_hash then assets.translation_status
-         when assets.translation_status = 'translated' then 'stale'
+         when assets.translation_status = 'skipped' then 'skipped'
+         when assets.translation_status in ('translated', 'stale') then 'stale'
          else excluded.translation_status
        end,
        risk_level = excluded.risk_level`,
@@ -185,9 +187,9 @@ export function listAssets(db: Database, query = '', filter = 'all'): Asset[] {
   const where: string[] = [];
   const params: unknown[] = [];
   if (query.trim()) {
-    where.push('(display_name like ? or original_description like ? or source_path like ?)');
+    where.push('(display_name like ? or original_description like ? or chinese_description like ? or source_path like ?)');
     const like = `%${query.trim()}%`;
-    params.push(like, like, like);
+    params.push(like, like, like, like);
   }
   if (filter !== 'all') {
     if (filter === 'untranslated') {
@@ -233,6 +235,25 @@ export function updateAssetTranslation(
   );
 }
 
+export function updateAssetTranslationStatus(
+  db: Database,
+  assetId: string,
+  status: TranslationStatus,
+  translatedText?: string
+): void {
+  if (translatedText !== undefined) {
+    updateAssetTranslation(db, assetId, translatedText, status);
+    return;
+  }
+  run(
+    db,
+    `update assets
+     set translation_status = ?, updated_at = ?
+     where id = ?`,
+    [status, nowIso(), assetId]
+  );
+}
+
 export function dashboardSummary(db: Database): DashboardSummary {
   const count = (sql: string, params: unknown[] = []) =>
     Number(selectOne<{ count: number }>(db, sql, params)?.count ?? 0);
@@ -248,6 +269,7 @@ export function dashboardSummary(db: Database): DashboardSummary {
     pendingTranslationTotal: count("select count(*) as count from assets where translation_status in ('none', 'stale', 'failed')"),
     staleTranslationTotal: count("select count(*) as count from assets where translation_status = 'stale'"),
     failedTotal: count("select count(*) as count from assets where translation_status = 'failed'"),
+    skippedTotal: count("select count(*) as count from assets where translation_status = 'skipped'"),
     riskTotal: count("select count(*) as count from assets where risk_level != 'none'"),
     recentAssets: selectAll<AssetRow>(db, 'select * from assets order by discovered_at desc limit 8').map((row) =>
       mapAssetRow(db, row)

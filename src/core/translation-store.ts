@@ -84,7 +84,7 @@ export function upsertTranslationJob(
   input: {
     assetId: string;
     sourceHash: string;
-    status: 'translated' | 'failed' | 'cached';
+    status: 'translated' | 'failed' | 'cached' | 'skipped';
     error?: string;
   }
 ): void {

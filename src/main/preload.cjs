@@ -11,6 +11,8 @@ const api = {
   translateAsset: (id) => ipcRenderer.invoke('lumina:translate-asset', id),
   translateAssetLive: (id) => ipcRenderer.invoke('lumina:translate-asset-live', id),
   translatePending: (limit = 10) => ipcRenderer.invoke('lumina:translate-pending', limit),
+  translateSelected: (assetIds) => ipcRenderer.invoke('lumina:translate-selected', assetIds),
+  skipTranslations: (assetIds) => ipcRenderer.invoke('lumina:skip-translations', assetIds),
   onTranslationProgress: (listener) => {
     const handler = (_event, payload) => listener(payload);
     ipcRenderer.on('lumina:translation-progress', handler);
@@ -20,6 +22,7 @@ const api = {
   addRoot: (pathExpression, kind) => ipcRenderer.invoke('lumina:add-root', pathExpression, kind),
   setTranslator: (translator) => ipcRenderer.invoke('lumina:set-translator', translator),
   addFile: (filePath, category) => ipcRenderer.invoke('lumina:add-file', filePath, category),
+  copyText: (text) => ipcRenderer.invoke('lumina:copy-text', text),
   pickFile: () => ipcRenderer.invoke('lumina:pick-file'),
   pickDirectory: () => ipcRenderer.invoke('lumina:pick-directory'),
   openPath: (target) => ipcRenderer.invoke('lumina:open-path', target),

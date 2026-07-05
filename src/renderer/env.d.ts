@@ -11,11 +11,14 @@ declare global {
       translateAsset: (id: string) => Promise<any>;
       translateAssetLive: (id: string) => Promise<any>;
       translatePending: (limit?: number) => Promise<any>;
+      translateSelected: (assetIds: string[]) => Promise<any>;
+      skipTranslations: (assetIds: string[]) => Promise<any>;
       onTranslationProgress: (listener: (event: any) => void) => () => void;
       doctor: () => Promise<any>;
       addRoot: (pathExpression: string, kind: string) => Promise<any>;
       setTranslator: (translator: any) => Promise<any>;
       addFile: (filePath: string, category: string) => Promise<any>;
+      copyText: (text: string) => Promise<any>;
       pickFile: () => Promise<string | undefined>;
       pickDirectory: () => Promise<string | undefined>;
       openPath: (target: string) => Promise<any>;

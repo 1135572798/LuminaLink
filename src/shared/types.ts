@@ -7,7 +7,7 @@ export type AssetType =
   | 'markdown_doc'
   | 'text_doc';
 
-export type TranslationStatus = 'none' | 'translated' | 'stale' | 'failed';
+export type TranslationStatus = 'none' | 'translated' | 'stale' | 'failed' | 'skipped';
 
 export type RiskLevel = 'none' | 'low' | 'medium' | 'high';
 
@@ -87,6 +87,7 @@ export interface DashboardSummary {
   pendingTranslationTotal: number;
   staleTranslationTotal: number;
   failedTotal: number;
+  skippedTotal: number;
   riskTotal: number;
   recentAssets: Asset[];
 }

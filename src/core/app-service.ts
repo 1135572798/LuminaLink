@@ -15,7 +15,13 @@ import { withTranslatorDefaults } from '../shared/provider-presets.js';
 import { toReadableText } from '../shared/readable-text.js';
 import { addScanRoot, expandScanRoots, loadConfig, saveConfig } from './config.js';
 import { openIndexStore, openTranslationStore } from './database.js';
-import { dashboardSummary, getAsset, listAssets, updateAssetTranslation } from './asset-store.js';
+import {
+  dashboardSummary,
+  getAsset,
+  listAssets,
+  updateAssetTranslation,
+  updateAssetTranslationStatus
+} from './asset-store.js';
 import { ensureDir, makeId, pathExists } from './fs-utils.js';
 import { getLuminaPaths } from './paths.js';
 import { addGenericFile, scanAll } from './scanner.js';
@@ -293,6 +299,83 @@ export async function translatePending(limit = 10): Promise<OperationResult> {
     message: `处理翻译任务 ${results.length} 个`,
     data: results
   };
+}
+
+export async function translateSelectedAssets(assetIds: string[]): Promise<OperationResult> {
+  const ids = uniqueAssetIds(assetIds);
+  const indexStore = await openIndexStore();
+  const candidates: string[] = [];
+  let ignored = 0;
+  let missing = 0;
+
+  for (const id of ids) {
+    const asset = getAsset(indexStore.db, id);
+    if (!asset) {
+      missing += 1;
+      continue;
+    }
+    if (['none', 'stale', 'failed'].includes(asset.translationStatus)) {
+      candidates.push(asset.id);
+    } else {
+      ignored += 1;
+    }
+  }
+  indexStore.close();
+
+  const results = [];
+  for (const id of candidates) {
+    results.push({ assetId: id, ...(await translateAssetById(id)) });
+  }
+  const failed = results.filter((item) => !item.ok).length;
+  return {
+    ok: failed === 0,
+    message: `选中 ${ids.length} 个，翻译 ${results.length} 个，跳过 ${ignored} 个已翻译/已跳过资产${missing ? `，${missing} 个未找到` : ''}`,
+    data: {
+      requested: ids.length,
+      translated: results.length,
+      ignored,
+      missing,
+      results
+    }
+  };
+}
+
+export async function skipAssetTranslations(assetIds: string[]): Promise<OperationResult> {
+  const ids = uniqueAssetIds(assetIds);
+  const indexStore = await openIndexStore();
+  const translationStore = await openTranslationStore();
+  let skipped = 0;
+  let missing = 0;
+
+  for (const id of ids) {
+    const asset = getAsset(indexStore.db, id);
+    if (!asset) {
+      missing += 1;
+      continue;
+    }
+    updateAssetTranslationStatus(indexStore.db, id, 'skipped');
+    upsertTranslationJob(translationStore.db, {
+      assetId: asset.id,
+      sourceHash: asset.contentHash,
+      status: 'skipped'
+    });
+    skipped += 1;
+  }
+
+  await indexStore.save();
+  await translationStore.save();
+  indexStore.close();
+  translationStore.close();
+
+  return {
+    ok: missing === 0,
+    message: `已跳过 ${skipped} 个资产${missing ? `，${missing} 个未找到` : ''}`,
+    data: { skipped, missing }
+  };
+}
+
+function uniqueAssetIds(assetIds: string[]): string[] {
+  return [...new Set(assetIds.map((id) => id.trim()).filter(Boolean))];
 }
 
 export async function exportAgentTranslationTask(outputFile: string, limit = 10): Promise<OperationResult> {

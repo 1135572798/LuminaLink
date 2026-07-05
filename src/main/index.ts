@@ -1,7 +1,7 @@
 import path from 'node:path';
 import fs from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
-import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, shell } from 'electron';
 import {
   addFile,
   addRoot,
@@ -14,8 +14,10 @@ import {
   searchAssets,
   setTranslatorConfig,
   showAsset,
+  skipAssetTranslations,
   translateAssetById,
-  translatePending
+  translatePending,
+  translateSelectedAssets
 } from '../core/app-service.js';
 import type { ReaderWindowPayload, ScanRootKind } from '../shared/types.js';
 import type { TranslatorConfig } from '../shared/types.js';
@@ -134,6 +136,9 @@ async function collectLayoutMetrics(): Promise<unknown> {
       const readerButton = document.querySelector('.reader-button');
       const detailText = document.querySelector('.detail-body')?.textContent || '';
       const appShell = document.querySelector('.app-shell');
+      const settingsWorkspace = document.querySelector('.workspace.settings-workspace');
+      const settingsPanel = document.querySelector('.settings-panel');
+      const settingsPanelRect = settingsPanel ? settingsPanel.getBoundingClientRect() : undefined;
       const root = document.documentElement;
       return {
         outerScroll: root.scrollHeight > window.innerHeight || document.body.scrollHeight > window.innerHeight,
@@ -149,6 +154,13 @@ async function collectLayoutMetrics(): Promise<unknown> {
         ),
         detailPaneWidth: detailPaneRect ? Math.round(detailPaneRect.width) : 0,
         resizerExists: Boolean(resizer),
+        settingsWorkspaceSinglePane: Boolean(settingsWorkspace && !detailPane && !resizer),
+        settingsPanelVisible: Boolean(
+          settingsPanelRect &&
+            settingsPanelRect.top >= 0 &&
+            settingsPanelRect.bottom <= window.innerHeight &&
+            settingsPanelRect.width > 0
+        ),
         readerButtonVisible: Boolean(readerButton && readerButton.getBoundingClientRect().height > 0),
         escapedNewlineVisible: detailText.includes('\\\\n'),
         logbarPinnedToBottom: Boolean(
@@ -247,6 +259,8 @@ async function runUiSmokeInteractions(screenshotDir: string): Promise<unknown> {
     })
   `);
   await captureSmokeScreenshot(screenshotDir, '08-untranslated-view.png');
+  const hoverAndContext = await runHoverAndContextMenuSmoke(screenshotDir);
+  const bulkSelection = await runBulkSelectionSmoke(screenshotDir);
   await mainWindow.webContents.executeJavaScript(`
     new Promise((resolve) => {
       const button = Array.from(document.querySelectorAll('.nav-item')).find((item) =>
@@ -270,6 +284,7 @@ async function runUiSmokeInteractions(screenshotDir: string): Promise<unknown> {
     `);
   }
   await captureSmokeScreenshot(screenshotDir, '09-settings.png');
+  const settingsLayout = await collectLayoutMetrics();
   await mainWindow.webContents.executeJavaScript(`
     new Promise((resolve) => {
       const button = Array.from(document.querySelectorAll('.nav-item')).find((item) =>
@@ -281,7 +296,146 @@ async function runUiSmokeInteractions(screenshotDir: string): Promise<unknown> {
   `);
   await captureSmokeScreenshot(screenshotDir, '10-codex-assist.png');
   const finalLayout = await collectLayoutMetrics();
-  return { noNotice: noNoticeLayout, detail: detailLayout, final: finalLayout, readerOpened };
+  return { noNotice: noNoticeLayout, detail: detailLayout, settings: settingsLayout, final: finalLayout, readerOpened, hoverAndContext, bulkSelection };
+}
+
+async function runHoverAndContextMenuSmoke(screenshotDir: string): Promise<unknown> {
+  if (!mainWindow) return undefined;
+  await mainWindow.webContents.executeJavaScript(`
+    new Promise((resolve) => {
+      const copy = document.querySelector('.asset-copy');
+      const rect = copy?.getBoundingClientRect();
+      if (copy && rect) {
+        copy.dispatchEvent(new MouseEvent('mouseenter', {
+          clientX: rect.left + 60,
+          clientY: rect.top + 18
+        }));
+      }
+      window.setTimeout(resolve, 500);
+    })
+  `);
+  await captureSmokeScreenshot(screenshotDir, '08-description-tooltip.png');
+  const tooltip = await mainWindow.webContents.executeJavaScript(`
+    (() => ({
+      visible: Boolean(document.querySelector('.description-tooltip')),
+      textLength: document.querySelector('.description-tooltip')?.textContent?.length ?? 0,
+      label: document.querySelector('.description-tooltip strong')?.textContent || ''
+    }))()
+  `);
+  await mainWindow.webContents.executeJavaScript(`
+    new Promise((resolve) => {
+      const copy = document.querySelector('.asset-copy');
+      const rect = copy?.getBoundingClientRect();
+      if (copy && rect) {
+        copy.dispatchEvent(new MouseEvent('mouseleave', {
+          clientX: rect.left + 60,
+          clientY: rect.top + 18
+        }));
+      }
+      window.setTimeout(resolve, 250);
+    })
+  `);
+  await mainWindow.webContents.executeJavaScript(`
+    new Promise((resolve) => {
+      const row = document.querySelector('.asset-row');
+      const rect = row?.getBoundingClientRect();
+      if (row && rect) {
+        row.dispatchEvent(new MouseEvent('contextmenu', {
+          bubbles: true,
+          cancelable: true,
+          clientX: rect.left + 220,
+          clientY: rect.top + 18
+        }));
+      }
+      window.setTimeout(resolve, 500);
+    })
+  `);
+  await captureSmokeScreenshot(screenshotDir, '08-context-menu.png');
+  const menu = await mainWindow.webContents.executeJavaScript(`
+    (() => ({
+      visible: Boolean(document.querySelector('.asset-context-menu')),
+      selectedRows: document.querySelectorAll('.asset-row.context-open').length,
+      actions: Array.from(document.querySelectorAll('.asset-context-menu button')).map((item) =>
+        item.textContent?.trim() || ''
+      )
+    }))()
+  `);
+  await mainWindow.webContents.executeJavaScript(`
+    new Promise((resolve) => {
+      const button = Array.from(document.querySelectorAll('.asset-context-menu button')).find((item) =>
+        item.textContent && item.textContent.includes('复制路径')
+      );
+      if (button) button.click();
+      window.setTimeout(resolve, 500);
+    })
+  `);
+  const afterCopy = await mainWindow.webContents.executeJavaScript(`
+    (() => ({
+      menuVisible: Boolean(document.querySelector('.asset-context-menu')),
+      noticeText: document.querySelector('.notice')?.textContent || ''
+    }))()
+  `);
+  return { tooltip, menu, afterCopy };
+}
+
+async function runBulkSelectionSmoke(screenshotDir: string): Promise<unknown> {
+  if (!mainWindow) return undefined;
+  const before = await mainWindow.webContents.executeJavaScript(`
+    (() => ({
+      visibleRows: document.querySelectorAll('.asset-row').length,
+      rowChecksVisible: document.querySelectorAll('.row-check').length,
+      pendingNavText: Array.from(document.querySelectorAll('.nav-item')).find((item) =>
+        item.textContent && item.textContent.includes('未翻译')
+      )?.textContent || ''
+    }))()
+  `);
+  await mainWindow.webContents.executeJavaScript(`
+    new Promise((resolve) => {
+      const button = document.querySelector('.selection-mode-button');
+      if (button) button.click();
+      window.setTimeout(resolve, 500);
+    })
+  `);
+  await mainWindow.webContents.executeJavaScript(`
+    new Promise((resolve) => {
+      const checks = Array.from(document.querySelectorAll('.row-check')).slice(0, 2);
+      for (const check of checks) check.click();
+      window.setTimeout(resolve, 500);
+    })
+  `);
+  await captureSmokeScreenshot(screenshotDir, '08-bulk-selection.png');
+  const selected = await mainWindow.webContents.executeJavaScript(`
+    (() => ({
+      bulkActionsVisible: Boolean(document.querySelector('.bulk-actions')),
+      selectedRows: document.querySelectorAll('.asset-row.checked').length,
+      rowChecksVisible: document.querySelectorAll('.row-check').length,
+      selectedText: document.querySelector('.bulk-actions')?.textContent || ''
+    }))()
+  `);
+  await mainWindow.webContents.executeJavaScript(`
+    new Promise((resolve) => {
+      const button = Array.from(document.querySelectorAll('.bulk-actions button')).find((item) =>
+        item.textContent && item.textContent.includes('跳过翻译')
+      );
+      if (button) button.click();
+      window.setTimeout(resolve, 1000);
+    })
+  `);
+  await captureSmokeScreenshot(screenshotDir, '08-skip-result.png');
+  const after = await mainWindow.webContents.executeJavaScript(`
+    (() => ({
+      visibleRows: document.querySelectorAll('.asset-row').length,
+      bulkActionsVisible: Boolean(document.querySelector('.bulk-actions')),
+      rowChecksVisible: document.querySelectorAll('.row-check').length,
+      skippedBadges: Array.from(document.querySelectorAll('.status')).filter((item) =>
+        item.textContent && item.textContent.includes('已跳过')
+      ).length,
+      pendingNavText: Array.from(document.querySelectorAll('.nav-item')).find((item) =>
+        item.textContent && item.textContent.includes('未翻译')
+      )?.textContent || ''
+    }))()
+  `);
+  return { before, selected, after };
 }
 
 async function openReaderDuringSmoke(): Promise<boolean> {
@@ -341,12 +495,18 @@ function registerIpc(): void {
     })
   );
   ipcMain.handle('lumina:translate-pending', (_event, limit: number) => translatePending(limit));
+  ipcMain.handle('lumina:translate-selected', (_event, assetIds: string[]) => translateSelectedAssets(assetIds));
+  ipcMain.handle('lumina:skip-translations', (_event, assetIds: string[]) => skipAssetTranslations(assetIds));
   ipcMain.handle('lumina:doctor', () => doctor());
   ipcMain.handle('lumina:add-root', (_event, pathExpression: string, kind: ScanRootKind) =>
     addRoot(pathExpression, kind)
   );
   ipcMain.handle('lumina:set-translator', (_event, translator: TranslatorConfig) => setTranslatorConfig(translator));
   ipcMain.handle('lumina:add-file', (_event, filePath: string, category: string) => addFile(filePath, category));
+  ipcMain.handle('lumina:copy-text', (_event, text: string) => {
+    clipboard.writeText(String(text ?? ''));
+    return true;
+  });
   ipcMain.handle('lumina:pick-file', async () => {
     const result = await dialog.showOpenDialog(mainWindow!, {
       properties: ['openFile'],
